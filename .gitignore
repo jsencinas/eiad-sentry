@@ -221,3 +221,14 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Sentry: model weights, datasets and detector output
+*.pt
+*.onnx
+*.engine
+*.tflite
+models/
+datasets/
+dataset/
+runs/
+out/
