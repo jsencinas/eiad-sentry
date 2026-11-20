@@ -106,7 +106,7 @@ def main() -> None:
     parser.add_argument("--port", type=int, default=8081, help="port (default: 8081)")
     parser.add_argument("--width", type=int, default=640)
     parser.add_argument("--height", type=int, default=480)
-    parser.add_argument("--quality", type=int, default=80, help="JPEG quality 1-100 (default: 80)")
+    parser.add_argument("--quality", type=int, default=70, help="JPEG quality 1-100, lower it on a slow network (default: 70)")
     args = parser.parse_args()
 
     camera = Camera(args.camera, args.width, args.height, args.quality)
