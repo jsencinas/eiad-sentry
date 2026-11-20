@@ -2,4 +2,5 @@
 # If ultralytics pulls in opencv-python and you get libGL errors on the Pi:
 #   pip uninstall -y opencv-python && pip install --force-reinstall opencv-python-headless
 ultralytics>=8.3
+lap>=0.5.12  # needed by the ByteTrack tracker
 opencv-python-headless>=4.8
