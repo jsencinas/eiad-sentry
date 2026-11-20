@@ -1,0 +1,5 @@
+# Runtime dependencies (Raspberry Pi and laptop).
+# If ultralytics pulls in opencv-python and you get libGL errors on the Pi:
+#   pip uninstall -y opencv-python && pip install --force-reinstall opencv-python-headless
+ultralytics>=8.3
+opencv-python-headless>=4.8
