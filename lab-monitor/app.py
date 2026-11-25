@@ -60,6 +60,18 @@ def guardar_estado():
              (bool(d.get("activo")), bool(d.get("alerta"))), commit=True)
     return jsonify(ok=True)
 
+@app.get("/api/esp32")
+def control_esp32():
+    datos = consulta("""
+        SELECT led_verde, led_rojo, buzzer, modo, actualizado
+        FROM control_esp32
+        WHERE id = 1
+    """, uno=True)
+
+    if datos is None:
+        return jsonify(error="Estado no disponible"), 503
+
+    return jsonify(datos)
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5001, debug=False)
