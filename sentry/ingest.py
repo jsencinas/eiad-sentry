@@ -21,6 +21,8 @@ from __future__ import annotations
 import argparse
 import hmac
 import os
+import signal
+import sys
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -260,6 +262,8 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--stats-interval", type=float, default=5.0, help="seconds between stats lines (default: 5)")
     args = p.parse_args(argv)
 
+    sys.stdout.reconfigure(line_buffering=True)  # logs show up at once when redirected
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))  # stop cleanly under systemd or kill
     token = load_token(args.token_file)
     try:
         server = IngestServer(
@@ -287,7 +291,7 @@ def main(argv: list[str] | None = None) -> None:
                 print(f"[ingest] No frames for {time.monotonic() - last:.0f} s")
             else:
                 print(f"[ingest] {fps:.1f} fps received | rejected: {store.rejected}")
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, SystemExit):
         pass
     finally:
         print("[ingest] Stopping")
