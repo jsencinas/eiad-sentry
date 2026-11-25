@@ -13,6 +13,8 @@ ESP32-CAM (http://ESP32_IP:81/stream), so the detector only changes the URL.
 from __future__ import annotations
 
 import argparse
+import socket
+import subprocess
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -99,6 +101,23 @@ def make_handler(camera: Camera) -> type[BaseHTTPRequestHandler]:
     return Handler
 
 
+def reachable_ips() -> list[str]:
+    """Addresses other machines can use to reach this laptop (LAN and Tailscale)."""
+    ips = []
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("192.0.2.1", 80))  # no packet is sent; just picks the outgoing interface
+            ips.append(s.getsockname()[0])
+    except OSError:
+        pass
+    try:
+        out = subprocess.run(["tailscale", "ip", "-4"], capture_output=True, text=True, timeout=3).stdout
+        ips += [ip for ip in out.split() if ip not in ips]
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return ips
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--camera", default="0", help="webcam index or video file (default: 0)")
@@ -112,7 +131,14 @@ def main() -> None:
     camera = Camera(args.camera, args.width, args.height, args.quality)
     server = ThreadingHTTPServer((args.host, args.port), make_handler(camera))
     server.daemon_threads = True
-    print(f"Streaming camera {args.camera} at http://{args.host}:{args.port}/stream (Ctrl+C to stop)")
+    print(f"Streaming camera {args.camera} (Ctrl+C to stop)")
+    if args.host == "0.0.0.0":
+        # 0.0.0.0 means "listen on every interface"; it is not an address to connect to.
+        print(f"  this laptop:   http://localhost:{args.port}/stream")
+        for ip in reachable_ips():
+            print(f"  other devices: http://{ip}:{args.port}/stream")
+    else:
+        print(f"  http://{args.host}:{args.port}/stream")
     try:
         server.serve_forever()
     except KeyboardInterrupt:

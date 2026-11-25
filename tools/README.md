@@ -43,7 +43,9 @@ If you see your camera live, the server is fine (`http://localhost:8081/` redire
 | `--port` | `8081` | 8081 rather than 81 because on Linux and macOS ports below 1024 need admin rights. |
 | `--host` | `0.0.0.0` | Accepts connections from other machines (the Pi). |
 
-**Find the laptop's IP** (you'll need it on the Pi):
+On startup the server prints the URLs to use from other devices (LAN and Tailscale IPs). Don't use `0.0.0.0` on the Pi: it only means "listen on every interface" and is not an address you can connect to.
+
+**Find the laptop's IP** by hand if needed:
 
 | System | Command |
 |---|---|
