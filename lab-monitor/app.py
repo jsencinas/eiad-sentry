@@ -73,5 +73,39 @@ def control_esp32():
 
     return jsonify(datos)
 
+
+@app.get("/api/estado-laboratorio")
+def estado_laboratorio():
+    datos = consulta("""
+        SELECT personas, proteccion, modo_alerta
+        FROM public.estado_laboratorio
+        WHERE id = 1
+    """, uno=True)
+
+    return jsonify(datos)
+
+
+@app.post("/api/estado-laboratorio")
+def actualizar_estado_laboratorio():
+    d = request.get_json(silent=True)
+
+    if not isinstance(d, dict):
+        return jsonify(error="JSON invalido"), 400
+
+    if type(d.get("personas")) is not bool:
+        return jsonify(error="personas debe ser booleano"), 400
+
+    if type(d.get("proteccion")) is not bool:
+        return jsonify(error="proteccion debe ser booleano"), 400
+
+    consulta("""
+        UPDATE public.estado_laboratorio
+        SET personas = %s, proteccion = %s
+        WHERE id = 1
+    """, (d["personas"], d["proteccion"]), commit=True)
+
+    return jsonify(ok=True)
+
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5001, debug=False)
