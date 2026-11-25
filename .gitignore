@@ -233,3 +233,6 @@ dataset/
 runs/
 out/
 last_frame.jpg
+
+# Firmware secrets (copy config.example.h)
+firmware/*/config.h
