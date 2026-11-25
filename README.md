@@ -18,6 +18,8 @@ ESP32-CAM (or laptop webcam) --MJPEG/WiFi--> Raspberry Pi 5: ppe_detector.py -->
 | `sentry/inference.py` | YOLOv8 inference and tracking |
 | `sentry/output.py` | Annotated frames, `on_violation` hook, console stats |
 | `sentry/web.py` | Live web viewer (MJPEG in the browser) |
+| `frame_ingest.py`, `sentry/ingest.py` | Receives frames pushed by the ESP32-CAM over HTTPS and re-serves them as local MJPEG |
+| `firmware/` | ESP32-CAM firmware that pushes frames to the Pi ([guide](firmware/README.md)) |
 | `tools/` | ESP32-CAM simulator for the laptop and a stream check for the Pi ([guide](tools/README.md)) |
 | `tests/` | `pytest` tests; they need no camera, model or OpenCV |
 | `raspberry_setup.md` | How the Pi was connected to the Tec enterprise WiFi and Tailscale |
@@ -70,6 +72,17 @@ Other substitute objects: `--require bottle`, `--require cup`, `--require "cell 
 ```
 
 A stats line (analysis fps and inference time per frame) is printed every 5 s. An alert is raised at most once every `--cooldown` seconds per person.
+
+## Camera on another network
+
+The ESP32-CAM and the Pi are on different networks, and the ESP32 cannot run Tailscale. So the camera pushes its frames over HTTPS to a Tailscale Funnel URL of the Pi, and `frame_ingest.py` hands them to the detector as a local stream:
+
+```bash
+python frame_ingest.py --token-file ~/.sentry_token          # receives the camera's frames
+python ppe_detector.py --demo --source http://127.0.0.1:8084/stream --save-dir out --web
+```
+
+Setup, flashing and security are in the [firmware guide](firmware/README.md). `tools/push_frames.py` does the same from the laptop webcam, to test the path before flashing the camera.
 
 ## Live web viewer
 

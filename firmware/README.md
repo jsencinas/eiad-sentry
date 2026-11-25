@@ -30,7 +30,7 @@ The camera only needs outbound internet access. Every frame carries a secret tok
    sudo tailscale funnel --bg 8083
    tailscale funnel status
    ```
-   `status` prints the public URL, e.g. `https://raspberrypi.tail1234.ts.net`. The first time, the command gives a link to enable HTTPS certificates and Funnel for your tailnet in the Tailscale admin console. `--bg` keeps it running after you close the SSH session and after reboots; `sudo tailscale funnel --https=443 off` turns it off.
+   `status` prints the public URL, e.g. `https://raspberrypi.tail1234.ts.net`. The first time, the command gives a link to enable HTTPS certificates and Funnel for your tailnet in the Tailscale admin console. `--bg` keeps it running after you close the SSH session and after reboots; `sudo tailscale funnel reset` turns it off.
 4. **Run the detector** on the local stream:
    ```bash
    python ppe_detector.py --demo --source http://127.0.0.1:8084/stream --save-dir out --web
