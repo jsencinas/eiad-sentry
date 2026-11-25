@@ -19,7 +19,7 @@ const unsigned long ESPERA_RECONEXION = 30000;
 WiFiServer server(80);
 
 bool initCamera() {
-  camera_config_t config;
+  camera_config_t config = {};
   config.ledc_channel = LEDC_CHANNEL_0;
   config.ledc_timer   = LEDC_TIMER_0;
   config.pin_d0       = Y2_GPIO_NUM;
@@ -39,20 +39,51 @@ bool initCamera() {
   config.pin_pwdn     = PWDN_GPIO_NUM;
   config.pin_reset    = RESET_GPIO_NUM;
   config.xclk_freq_hz = 20000000;
-  config.pixel_format = PIXFORMAT_JPEG; 
+  config.pixel_format = PIXFORMAT_JPEG;
 
-  if (psramFound()) {
+  bool hasPsram = psramFound();
+  if (hasPsram) {
     config.frame_size   = FRAMESIZE_VGA; // 640x480
     config.jpeg_quality = 12;            // 0-63 (lower = higher quality)
     config.fb_count     = 2;             // Double buffer in PSRAM
+    config.fb_location  = CAMERA_FB_IN_PSRAM;
     config.grab_mode    = CAMERA_GRAB_LATEST; // Always grab freshest frame for low latency
   } else {
     config.frame_size   = FRAMESIZE_CIF;
     config.jpeg_quality = 15;
     config.fb_count     = 1;
+    config.fb_location  = CAMERA_FB_IN_DRAM;
+    config.grab_mode    = CAMERA_GRAB_WHEN_EMPTY;
   }
 
-  return (esp_camera_init(&config) == ESP_OK);
+  esp_err_t err = esp_camera_init(&config);
+
+  // Fallback for sensors without hardware JPEG (e.g., RHYX M21-45 / GC2145)
+  if (err == ESP_ERR_NOT_SUPPORTED) {
+    Serial.println("Sensor lacks hardware JPEG. Re-initializing in PIXFORMAT_RGB565 with JIT JPEG compression...");
+    config.pixel_format = PIXFORMAT_RGB565;
+    config.frame_size   = hasPsram ? FRAMESIZE_QVGA : FRAMESIZE_QQVGA;
+    config.fb_count     = hasPsram ? 2 : 1;
+    config.fb_location  = hasPsram ? CAMERA_FB_IN_PSRAM : CAMERA_FB_IN_DRAM;
+    config.grab_mode    = hasPsram ? CAMERA_GRAB_LATEST : CAMERA_GRAB_WHEN_EMPTY;
+    err = esp_camera_init(&config);
+  }
+
+  if (err != ESP_OK) {
+    Serial.printf("Camera init failed with error 0x%x\n", err);
+    return false;
+  }
+
+  sensor_t *s = esp_camera_sensor_get();
+  if (s) {
+    camera_sensor_info_t *info = esp_camera_sensor_get_info(&s->id);
+    if (info) {
+      Serial.printf("Detected sensor: %s (PID: 0x%04x, HW JPEG: %s)\n",
+                    info->name, s->id.PID, info->support_jpeg ? "YES" : "NO");
+    }
+  }
+
+  return true;
 }
 
 void configurarEnterprise() {
@@ -96,7 +127,7 @@ bool conectarWiFi() {
     return true;
   }
 
-  Serial.println("\nNo se pudo conectar. Revisa usuario/contrasena.");
+  Serial.println("\nCould not connect to the Network. Check Username/Password.");
   return false;
 }
 
@@ -126,11 +157,31 @@ void handleStreamClient(WiFiClient &client) {
 
   // 3. Continuous Frame Push Loop
   while (client.connected()) {
-    // Grab raw JPEG buffer from OV2640 DMA
+    // Grab frame buffer from camera DMA
     camera_fb_t *fb = esp_camera_fb_get();
     if (!fb) {
       Serial.println("Frame capture failed");
       break;
+    }
+
+    uint8_t *jpgBuf = nullptr;
+    size_t jpgLen   = 0;
+    bool converted  = false;
+
+    if (fb->format == PIXFORMAT_JPEG) {
+      jpgBuf = fb->buf;
+      jpgLen = fb->len;
+    } else {
+      // JIT software JPEG compression (quality 1-100, higher = better)
+      converted = frame2jpg(fb, 80, &jpgBuf, &jpgLen);
+      // Release DMA frame buffer immediately so next frame can be captured during Wi-Fi TX
+      esp_camera_fb_return(fb);
+      fb = nullptr;
+
+      if (!converted) {
+        Serial.println("JIT JPEG compression failed");
+        break;
+      }
     }
 
     // Format and send the sub-header for this individual JPEG frame
@@ -140,18 +191,23 @@ void handleStreamClient(WiFiClient &client) {
       "--frameboundary\r\n"
       "Content-Type: image/jpeg\r\n"
       "Content-Length: %u\r\n\r\n",
-      fb->len
+      (unsigned int)jpgLen
     );
     client.write((const uint8_t *)frameHeader, headerLen);
 
     // Write the raw JPEG bytes directly to the TCP socket
-    size_t bytesSent = client.write(fb->buf, fb->len);
+    size_t bytesSent = client.write(jpgBuf, jpgLen);
 
     // Terminate the frame chunk
     client.write((const uint8_t *)"\r\n", 2);
 
-    // Crucial: Return the frame buffer to the driver immediately so DMA can reuse it
-    esp_camera_fb_return(fb);
+    // Return the frame buffer (if hardware JPEG) or free the JIT JPEG buffer
+    if (fb) {
+      esp_camera_fb_return(fb);
+    }
+    if (converted && jpgBuf) {
+      free(jpgBuf);
+    }
 
     // If the client closed the browser tab or connection dropped, exit loop
     if (bytesSent == 0) {
