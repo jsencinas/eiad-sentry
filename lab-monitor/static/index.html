@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Monitor de Laboratorio</title>
+<style>
+:root{--bg:#f4f5f7;--card:#fff;--text:#1c1f24;--muted:#6b7280;--line:#d9dce1;--accent:#2563eb;--danger:#dc2626;--ok:#16a34a;--cam:#111827;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0f1115;--card:#181b21;--text:#eceef2;--muted:#9aa1ad;--line:#2b3039;--accent:#60a5fa;--danger:#f87171;--ok:#4ade80;--cam:#000}}
+:root[data-theme="dark"]{--bg:#0f1115;--card:#181b21;--text:#eceef2;--muted:#9aa1ad;--line:#2b3039;--accent:#60a5fa;--danger:#f87171;--ok:#4ade80;--cam:#000}
+*{box-sizing:border-box}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.app{max-width:1000px;margin:0 auto;padding:16px}
+header{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}
+h1{font-size:1.2rem;margin:0}
+.pill{font-size:.8rem;padding:4px 10px;border-radius:99px;border:1px solid var(--line);color:var(--muted)}
+.pill.on{color:var(--ok);border-color:var(--ok)}
+.view{display:none}.view.active{display:block}
+/* Dashboard: 3 columnas en escritorio, apilado en móvil */
+.grid{display:grid;gap:14px;grid-template-columns:1fr 2fr 1fr;grid-template-areas:"power cam alert" "lab rep set"}
+.power{grid-area:power}.cam{grid-area:cam}.alert{grid-area:alert}
+.t-lab{grid-area:lab}.t-rep{grid-area:rep}.t-set{grid-area:set}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px}
+.btn{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:18px;min-height:110px;font:inherit;color:var(--text);cursor:pointer;text-decoration:none;text-align:center}
+.btn .ic{font-size:2.2rem;line-height:1}
+.btn .lb{font-weight:600;font-size:.9rem;letter-spacing:.05em;text-transform:uppercase}
+.power.on .ic{color:var(--ok)}
+.cam{position:relative;aspect-ratio:16/10;background:var(--cam);overflow:hidden;border:2px solid var(--line)}
+.cam.alerting{border-color:var(--danger);box-shadow:0 0 0 3px color-mix(in srgb,var(--danger) 30%,transparent)}
+.cam .feed{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#9ca3af;font-size:.95rem;flex-direction:column;gap:8px}
+.cam .feed span{font-size:3rem}
+.badge{position:absolute;bottom:10px;padding:6px 10px;border-radius:10px;background:rgba(0,0,0,.6);color:#fff;font-size:.9rem}
+.badge.people{left:10px}.badge.warn{right:10px;opacity:.4}
+.cam.alerting .badge.warn{opacity:1;background:var(--danger)}
+.switch{position:relative;width:52px;height:28px;border-radius:99px;background:var(--line);border:0;cursor:pointer;padding:0}
+.switch::after{content:"";position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:50%;background:#fff;transition:.2s}
+.switch[aria-checked="true"]{background:var(--danger)}
+.switch[aria-checked="true"]::after{left:27px}
+.back{display:inline-block;margin-bottom:12px;color:var(--accent);text-decoration:none}
+h2{margin:0 0 12px;font-size:1.1rem}
+.tabs{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+.tab{padding:8px 14px;border-radius:99px;border:1px solid var(--line);background:var(--card);color:var(--text);cursor:pointer;font:inherit}
+.tab[aria-selected="true"]{background:var(--accent);color:#fff;border-color:var(--accent)}
+.panel{display:none;padding:8px 14px;overflow-x:auto}.panel.active{display:block}
+table{width:100%;border-collapse:collapse;font-size:.92rem}
+th,td{text-align:left;padding:10px 6px;border-bottom:1px solid var(--line);white-space:nowrap}
+th{color:var(--muted);font-weight:600}
+.list{padding:6px 14px}.list .row{display:flex;gap:10px;padding:12px 0;border-bottom:1px solid var(--line)}
+.list .row:last-child,tr:last-child td{border-bottom:0}
+.muted{color:var(--muted)}
+@media (max-width:640px){
+ .app{padding:12px}
+ .grid{grid-template-columns:1fr 1fr 1fr;grid-template-areas:"cam cam cam" "power power alert" "lab rep set"}
+ .power,.alert{min-height:90px}
+ .t-lab,.t-rep,.t-set{min-height:84px;padding:12px 6px}
+ .t-lab .lb,.t-rep .lb,.t-set .lb{font-size:.7rem}
+}
+</style>
+</head>
+<body>
+<div class="app">
+<header><h1>Monitor de Laboratorio</h1><span id="estado" class="pill">Sistema apagado</span></header>
+
+<!-- VISTA PRINCIPAL -->
+<main id="inicio" class="view active">
+ <div class="grid">
+  <button id="btnPower" class="card btn power" aria-pressed="false"><span class="ic">⏻</span><span class="lb" id="lbPower">OFF</span></button>
+  <section id="cam" class="card cam" aria-label="Cámara en vivo">
+   <div class="feed" id="feed"><span>📷</span>Cámara apagada</div>
+   <div class="badge people">👤 <b id="cuenta">0</b></div>
+   <div class="badge warn">⚠️</div>
+  </section>
+  <div class="card btn alert">
+   <span class="lb">Modo alerta</span><span class="ic">🚨</span>
+   <button id="swAlerta" class="switch" role="switch" aria-checked="false" aria-label="Modo alerta"></button>
+  </div>
+  <a href="#laboratorio" class="card btn t-lab"><span class="ic">🏠</span><span class="lb">Laboratorio</span></a>
+  <a href="#reportes" class="card btn t-rep"><span class="ic">⚠️</span><span class="lb">Reportes</span></a>
+  <a href="#ajustes" class="card btn t-set"><span class="ic">⚙️</span><span class="lb">Ajustes</span></a>
+ </div>
+</main>
+
+<!-- LABORATORIO -->
+<section id="laboratorio" class="view">
+ <a class="back" href="#inicio">← Volver</a>
+ <h2>Laboratorio</h2>
+ <div class="tabs" role="tablist">
+  <button class="tab" role="tab" aria-selected="true" data-p="p-ahora">Personas en el laboratorio</button>
+  <button class="tab" role="tab" aria-selected="false" data-p="p-hist">Registro de personas (historial)</button>
+ </div>
+ <div id="p-ahora" class="card panel active">
+  <table><thead><tr><th>Nombre</th><th>Entrada</th></tr></thead>
+  <tbody id="tAhora"></tbody></table>
+ </div>
+ <div id="p-hist" class="card panel">
+  <table><thead><tr><th>Nombre</th><th>Entrada</th><th>Salida</th></tr></thead>
+  <tbody id="tHist"></tbody></table>
+ </div>
+</section>
+
+<!-- REPORTES -->
+<section id="reportes" class="view">
+ <a class="back" href="#inicio">← Volver</a>
+ <h2>Reportes</h2>
+ <div class="card list" id="listaRep"></div>
+</section>
+
+<!-- AJUSTES -->
+<section id="ajustes" class="view">
+ <a class="back" href="#inicio">← Volver</a>
+ <h2>Ajustes</h2>
+ <div class="card list"><p class="muted">Aquí irán las opciones de configuración (cámara, notificaciones, usuarios).</p></div>
+</section>
+</div>
+
+<script>
+// Datos que vienen de PostgreSQL a través de la API
+var enLab=[],hist=[],reps=[];
+function esc(t){return String(t).replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]})}
+function fmt(d){return d?new Date(d).toLocaleString("es-MX",{dateStyle:"short",timeStyle:"short"}):"—"}
+function fill(id,rows){document.getElementById(id).innerHTML=rows.map(function(r){return "<tr>"+r.map(function(c){return "<td>"+esc(c)+"</td>"}).join("")+"</tr>"}).join("")}
+async function api(url,opts){var r=await fetch(url,opts);if(!r.ok)throw new Error(r.status);return r.json()}
+async function carga(){
+ try{
+  var r=await Promise.all([api("/api/en-laboratorio"),api("/api/historial"),api("/api/reportes"),api("/api/estado")]);
+  enLab=r[0];hist=r[1];reps=r[2];on=r[3].activo;alerta=r[3].alerta;
+  fill("tAhora",enLab.map(function(p){return [p.nombre,fmt(p.entrada)]}));
+  fill("tHist",hist.map(function(p){return [p.nombre,fmt(p.entrada),fmt(p.salida)]}));
+  document.getElementById("listaRep").innerHTML=reps.map(function(x){return '<div class="row"><span>⚠️</span><div><div>'+esc(x.descripcion)+'</div><div class="muted">'+fmt(x.creado)+'</div></div></div>'}).join("");
+  pinta();
+ }catch(e){console.error("Error al cargar datos:",e)}
+}
+function guarda(){api("/api/estado",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({activo:on,alerta:alerta})}).catch(function(e){console.error(e)})}
+
+// Navegación por hash
+var vistas=["inicio","laboratorio","reportes","ajustes"];
+function ruta(){var h=(location.hash||"#inicio").slice(1);if(vistas.indexOf(h)<0)h="inicio";
+ vistas.forEach(function(v){document.getElementById(v).classList.toggle("active",v===h)});window.scrollTo(0,0)}
+window.addEventListener("hashchange",ruta);ruta();
+
+// Pestañas
+document.querySelectorAll(".tab").forEach(function(t){t.addEventListener("click",function(){
+ document.querySelectorAll(".tab").forEach(function(x){x.setAttribute("aria-selected",x===t)});
+ document.querySelectorAll(".panel").forEach(function(p){p.classList.toggle("active",p.id===t.dataset.p)})})});
+
+// Activar / Desactivar
+var on=false,alerta=false;
+var btn=document.getElementById("btnPower"),sw=document.getElementById("swAlerta"),cam=document.getElementById("cam");
+function pinta(){
+ btn.classList.toggle("on",on);btn.setAttribute("aria-pressed",on);
+ document.getElementById("lbPower").textContent=on?"ON":"OFF";
+ var e=document.getElementById("estado");e.textContent=on?"Sistema activo":"Sistema apagado";e.classList.toggle("on",on);
+ document.getElementById("feed").innerHTML=on?"<span>🎥</span>Transmisión en vivo (conecta aquí tu cámara)":"<span>📷</span>Cámara apagada";
+ document.getElementById("cuenta").textContent=on?enLab.length:0;
+ cam.classList.toggle("alerting",on&&alerta);
+ sw.setAttribute("aria-checked",alerta);
+}
+btn.addEventListener("click",function(){on=!on;pinta();guarda()});
+sw.addEventListener("click",function(){alerta=!alerta;pinta();guarda()});
+pinta();carga();setInterval(carga,5000);
+</script>
+</body>
+</html>
