@@ -209,12 +209,18 @@ void loop() {
   if (millis() - lastFrame < gap) delay(gap - (millis() - lastFrame));
   lastFrame = millis();
 
+  static uint8_t captureFailures = 0;
   camera_fb_t *fb = esp_camera_fb_get();
   if (!fb) {
     Serial.println("Camera capture failed");
+    if (++captureFailures >= 20) {  // the camera does not recover by itself
+      Serial.println("Camera stuck, restarting");
+      ESP.restart();
+    }
     delay(100);
     return;
   }
+  captureFailures = 0;
   size_t len = fb->len;
   bool sent = sendFrame(fb);
   esp_camera_fb_return(fb);
