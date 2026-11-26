@@ -17,6 +17,7 @@ import ipaddress
 import json
 import subprocess
 import threading
+from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 BOUNDARY = "frame"
@@ -54,40 +55,62 @@ def resolve_host(requested: str | None) -> str:
 class FrameHub:
     """Latest annotated frame shared between the detector and the HTTP clients.
 
-    Frames are only JPEG-encoded while somebody is watching.
+    Frames are only JPEG-encoded while somebody watches /stream; a snapshot
+    request encodes the latest frame on demand.
     """
 
-    def __init__(self, quality: int = 75) -> None:
+    def __init__(self, quality: int = 75, encoder: Callable | None = None) -> None:
         self.quality = quality
+        self._encoder = encoder or self._cv2_encode
         self._cond = threading.Condition()
+        self._frame = None
+        self._frame_id = 0
         self._jpeg: bytes | None = None
+        self._jpeg_id = 0
         self._seq = 0
         self._clients = 0
         self._status: dict = {}
         self._closed = False
+
+    def _cv2_encode(self, frame) -> bytes | None:
+        import cv2  # lazy: keeps this module importable without OpenCV
+
+        ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, self.quality])
+        return buf.tobytes() if ok else None
 
     @property
     def has_clients(self) -> bool:
         return self._clients > 0
 
     def publish(self, frame, status: dict | None = None) -> None:
-        jpeg = None
-        if self._clients > 0 or self._jpeg is None:
-            import cv2  # lazy: keeps the host-selection logic testable without OpenCV
-
-            ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, self.quality])
-            jpeg = buf.tobytes() if ok else None
+        """Store a new annotated frame. The frame must not be modified afterwards."""
         with self._cond:
-            if jpeg is not None:
-                self._jpeg = jpeg
-                self._seq += 1
+            self._frame = frame
+            self._frame_id += 1
+            frame_id = self._frame_id
             if status is not None:
                 self._status = status
+            watched = self._clients > 0
+        jpeg = self._encoder(frame) if watched else None
+        with self._cond:
+            if jpeg is not None and frame_id > self._jpeg_id:
+                self._jpeg, self._jpeg_id = jpeg, frame_id
+                self._seq += 1
             self._cond.notify_all()
 
     def latest(self) -> bytes | None:
+        """JPEG of the latest frame, encoding it now if nobody was watching."""
         with self._cond:
-            return self._jpeg
+            frame, frame_id = self._frame, self._frame_id
+            if self._jpeg is not None and self._jpeg_id == frame_id:
+                return self._jpeg
+        if frame is None:
+            return None
+        jpeg = self._encoder(frame)
+        with self._cond:
+            if jpeg is not None and frame_id > self._jpeg_id:
+                self._jpeg, self._jpeg_id = jpeg, frame_id
+        return jpeg
 
     def status(self) -> dict:
         with self._cond:
