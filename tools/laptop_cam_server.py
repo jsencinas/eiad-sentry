@@ -3,8 +3,10 @@
 Usage:
     python tools/laptop_cam_server.py [--camera 0] [--port 8081] [--width 640 --height 480]
 
---camera also accepts a video file, which is played in a loop (handy to test
-without a webcam).
+--camera also accepts a device path or a video file, which is played in a loop
+(handy to test without a webcam). If the webcam disconnects it is reopened; on
+Linux a stable path such as /dev/v4l/by-id/usb-...-video-index0 survives a USB
+reconnect that changes the index.
 
 The stream is served at http://LAPTOP_IP:PORT/stream, the same shape as the
 ESP32-CAM (http://ESP32_IP:81/stream), so the detector only changes the URL.
@@ -13,6 +15,7 @@ ESP32-CAM (http://ESP32_IP:81/stream), so the detector only changes the URL.
 from __future__ import annotations
 
 import argparse
+import os
 import socket
 import subprocess
 import threading
@@ -28,13 +31,11 @@ class Camera:
     """Grabs frames in a background thread and keeps the latest JPEG."""
 
     def __init__(self, source: str, width: int, height: int, quality: int) -> None:
-        self.is_file = not source.isdigit()
-        self.cap = cv2.VideoCapture(source if self.is_file else int(source))
-        if not self.cap.isOpened():
+        self.source, self.width, self.height = source, width, height
+        self.is_file = os.path.isfile(source)  # loop video files; /dev/video* are cameras
+        self.cap = self._open()
+        if self.cap is None:
             raise SystemExit(f"Could not open camera {source}")
-        if not self.is_file:
-            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
-            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
         # Play files at their own frame rate instead of as fast as possible.
         fps = self.cap.get(cv2.CAP_PROP_FPS) if self.is_file else 0
         self.frame_delay = 1.0 / fps if fps and fps > 0 else 0.0
@@ -44,14 +45,36 @@ class Camera:
         self.cond = threading.Condition()
         threading.Thread(target=self._loop, daemon=True).start()
 
+    def _open(self):
+        cap = cv2.VideoCapture(int(self.source) if self.source.isdigit() else self.source)
+        if not cap.isOpened():
+            cap.release()
+            return None
+        if not self.is_file:
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
+        return cap
+
     def _loop(self) -> None:
+        failures = 0
         while True:
-            ok, frame = self.cap.read()
+            ok, frame = self.cap.read() if self.cap is not None else (False, None)
             if not ok:
-                if self.is_file:
+                if self.is_file and self.cap is not None:
                     self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)  # loop the video
+                    continue
+                # A webcam that was unplugged or reset never recovers on the old handle.
+                failures += 1
+                if failures >= 20:
+                    print("Camera lost, reopening...")
+                    if self.cap is not None:
+                        self.cap.release()
+                    self.cap = self._open()
+                    failures = 0
+                    time.sleep(1.0)
                 time.sleep(0.05)
                 continue
+            failures = 0
             if self.frame_delay:
                 time.sleep(self.frame_delay)
             ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, self.quality])
