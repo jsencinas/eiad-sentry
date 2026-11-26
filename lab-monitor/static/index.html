@@ -5,131 +5,197 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Monitor de Laboratorio</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;800&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&display=swap" rel="stylesheet">
 <style>
-:root{--bg:#cfe9ec;--panel:#f5f9fb;--card:#fff;--ink:#18212f;--muted:#7b8794;--blue:#4aa8ff;--green:#2fbf7f;--red:#ff4d5e}
-*,*::before,*::after{box-sizing:border-box;margin:0;font-family:Montserrat,system-ui,sans-serif}
-body{background:var(--bg);color:var(--ink);min-height:100vh;padding:24px;display:flex;justify-content:center;align-items:flex-start}
-button,input{font-family:Montserrat,system-ui,sans-serif;font-size:inherit;color:inherit}
-button{cursor:pointer;border:0}
-:focus-visible{outline:3px solid var(--blue);outline-offset:2px}
-
-.main{width:100%;max-width:1000px;background:var(--panel);border-radius:28px;padding:26px;box-shadow:0 10px 30px #4a7a8026}
-.top{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:18px}
-h1{font-size:26px;font-weight:800;letter-spacing:-.5px}
-.pill{border:1.5px solid var(--green);color:var(--green);border-radius:99px;padding:5px 14px;font-size:13px;font-weight:600;background:#fff}
-.pill.off{border-color:var(--muted);color:var(--muted)}
-.pill.alert{border-color:var(--red);color:var(--red)}
-
-.grid{display:grid;grid-template-columns:1fr 2.2fr 1fr;gap:14px}
-.grid+.grid{margin-top:14px}
-.tile{background:var(--card);border-radius:22px;padding:18px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;text-align:center;font-weight:600;font-size:14px;box-shadow:0 6px 18px #4a7a8018;width:100%}
-.tile .ico{font-size:34px}
-button.tile:hover{transform:translateY(-2px);transition:transform .15s}
-.power{min-height:260px}
-.power .ico{font-size:52px;color:var(--green)}
-.power.off .ico{color:var(--muted);filter:grayscale(1)}
-
-.cam{position:relative;background:#000;border-radius:22px;overflow:hidden;min-height:260px;aspect-ratio:4/3;max-height:420px;color:#c5ccd3}
-.cam img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
-.cam .ph{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;font-size:14px;padding:16px;text-align:center}
-.cam .ph span{font-size:46px}
-.cam .count{position:absolute;left:14px;bottom:12px;font-weight:600;color:#fff;background:#0009;border-radius:99px;padding:4px 12px;font-size:13px}
-.cam .warn{position:absolute;right:14px;bottom:12px;font-size:18px;opacity:.35}
-.cam.alert .warn{opacity:1}
-.cam.dim img{opacity:.15}
-
-.sw{position:relative;width:52px;height:30px;border-radius:99px;background:#d4dce2;transition:background .2s}
-.sw::after{content:"";position:absolute;top:3px;left:3px;width:24px;height:24px;border-radius:50%;background:#fff;box-shadow:0 2px 4px #0003;transition:transform .2s}
-.sw[aria-checked="true"]{background:var(--red)}
-.sw[aria-checked="true"]::after{transform:translateX(22px)}
-
-.row2 .tile{min-height:96px;flex-direction:row;gap:12px;font-size:15px}
-.row2 .ico{font-size:28px}
-
-.cfg{display:none;margin-top:14px;background:#fff;border-radius:22px;padding:18px;gap:10px;flex-wrap:wrap;align-items:center;font-weight:600;font-size:14px}
-.cfg.open{display:flex}
-.cfg input{flex:1;min-width:220px;border:1.5px solid #dbe5ea;border-radius:12px;padding:10px 12px;font-weight:400}
-.btn{border-radius:12px;padding:10px 16px;font-weight:600;font-size:14px;background:var(--blue);color:#fff}
-
-.rep{display:none;margin-top:14px;background:#fff;border-radius:22px;padding:18px;overflow-x:auto;box-shadow:0 6px 18px #4a7a8018}
-.rep.open{display:block}
-.rep h2{font-size:16px;margin-bottom:4px}
-.rep .sum{color:var(--muted);font-size:13px;margin-bottom:12px}
-.rep table{width:100%;border-collapse:collapse;font-size:14px;min-width:520px}
-.rep th{text-align:left;color:var(--muted);font-weight:600;padding:8px 10px}
-.rep td{padding:10px;border-top:1px solid #edf1f4}
-.rep tr:nth-child(even) td{background:#f3f9fb}
-.tag{display:inline-block;border-radius:99px;padding:3px 12px;font-size:12px;font-weight:600}
-.tag.ok{background:#e1f6ec;color:#1b8a5a}
-.tag.bad{background:#ffe4e7;color:#d12f40}
-.tag.in{background:#e6eef2;color:var(--muted)}
-.tile.sel{outline:3px solid var(--blue)}
-@media (max-width:860px){
-  body{padding:12px}
-  .grid{grid-template-columns:1fr}
-  .cam{order:-1}
-  .power{min-height:150px}
+:root{
+  color-scheme:dark;
+  --paper:#1A2120;      /* slate benchtop */
+  --surface:#232C2A;
+  --raise:#2C3734;
+  --ink:#E7EDEA;
+  --muted:#9CABA5;
+  --line:#35413D;
+  --safe:#22A874;       /* ISO 7010 safety green, lifted for a dark ground */
+  --hazard:#F2B705;     /* hazard-tape yellow */
+  --tape:#141917;       /* the dark band of the hazard tape */
+  --stop:#F0544D;       /* errors only */
+  --frame:var(--safe);
 }
-@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+*,*::before,*::after{box-sizing:border-box;margin:0}
+html{background:var(--paper)}
+body{min-height:100vh;background:var(--paper);color:var(--ink);font:400 16px/1.5 Archivo,system-ui,sans-serif;padding:28px 24px 48px}
+button,input{font:inherit;color:inherit}
+button{cursor:pointer;border:0;background:none}
+button:disabled{cursor:not-allowed;opacity:.55}
+:focus-visible{outline:3px solid var(--ink);outline-offset:3px}
+
+.wrap{max-width:1160px;margin:0 auto}
+
+/* Header */
+.top{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:22px}
+h1{font-size:clamp(24px,3.2vw,34px);font-weight:800;font-stretch:125%;letter-spacing:-.01em;line-height:1.1}
+.top-right{display:flex;align-items:center;gap:10px}
+.status{display:inline-flex;align-items:center;gap:8px;font-weight:600;font-size:15px;padding:7px 14px 7px 12px;border-radius:99px;background:var(--surface);border:1px solid var(--line)}
+.status::before{content:"";width:10px;height:10px;border-radius:50%;background:var(--frame)}
+body[data-state="alert"] .status::before{background:var(--hazard);box-shadow:0 0 0 2px var(--tape)}
+.status.lost::before{background:var(--stop);box-shadow:none}
+.icon-btn{display:inline-flex;align-items:center;gap:8px;padding:7px 14px;border-radius:99px;border:1px solid var(--line);background:var(--surface);font-weight:600;font-size:15px}
+.icon-btn[aria-expanded="true"]{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+.icon-btn svg{width:18px;height:18px}
+
+/* Settings */
+.cfg{display:none;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:22px;padding:16px 18px;background:var(--surface);border:1px solid var(--line);border-radius:14px}
+.cfg.open{display:flex}
+.cfg label{font-weight:600}
+.cfg input{flex:1;min-width:240px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--paper)}
+.cfg .hint{flex-basis:100%;color:var(--muted);font-size:14px}
+.btn{padding:10px 18px;border-radius:10px;background:var(--ink);color:var(--paper);font-weight:600}
+
+/* Main stage: camera + control rail */
+.stage{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:22px;align-items:start}
+
+/* 4:3 picture that always fits the screen height, centered in its column */
+.frame{width:min(100%,calc((100vh - 150px) * 4 / 3));min-width:min(100%,420px);justify-self:center}
+body[data-state="off"]{--frame:#4B5753}
+.cam{position:relative;aspect-ratio:4/3;width:100%;background:#0C100F;border-radius:14px;overflow:hidden;display:grid;place-items:center}
+.cam img{width:100%;height:100%;object-fit:contain;object-position:center;display:block}
+.cam img[hidden]{display:none}
+.ph{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding:24px;text-align:center;color:#C9D1CD;max-width:42ch;margin:auto}
+.ph[hidden]{display:none}
+.ph svg{width:44px;height:44px;opacity:.7}
+.ph strong{color:#fff;font-weight:600;font-size:17px}
+.ph button{color:#fff;text-decoration:underline;text-underline-offset:3px}
+
+/* Rail */
+.rail{background:var(--surface);border:1px solid var(--line);border-radius:18px;display:flex;flex-direction:column}
+.rail>*+*{border-top:1px solid var(--line)}
+.block{padding:20px}
+.count{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
+.count b{font-size:56px;font-weight:700;font-stretch:110%;line-height:1;font-variant-numeric:tabular-nums}
+.count span{color:var(--muted)}
+
+.power{width:100%;display:flex;align-items:center;gap:14px;padding:14px 16px;border-radius:12px;background:var(--raise);font-weight:600;text-align:left;transition:background .2s}
+.power:hover:not(:disabled){background:#34413D}
+.power .dot{flex:none;width:40px;height:40px;border-radius:50%;display:grid;place-items:center;background:var(--safe);color:var(--tape)}
+.power.off .dot{background:#56635E;color:var(--ink)}
+.power .dot svg{width:20px;height:20px}
+.power small{display:block;font-weight:400;color:var(--muted);font-size:14px}
+
+.row{display:flex;align-items:center;justify-content:space-between;gap:12px;font-weight:600}
+.row small{display:block;font-weight:400;color:var(--muted);font-size:14px}
+.sw{flex:none;position:relative;width:52px;height:30px;border-radius:99px;background:#46534E;transition:background .2s}
+.sw::after{content:"";position:absolute;top:3px;left:3px;width:24px;height:24px;border-radius:50%;background:#fff;box-shadow:0 1px 3px #0006;transition:transform .2s}
+.sw[aria-checked="true"]{background:var(--hazard)}
+.sw[aria-checked="true"]::after{transform:translateX(22px);background:var(--tape)}
+
+/* Tabs + panels */
+.tabs{display:flex;gap:4px;margin:30px 0 0;border-bottom:1px solid var(--line)}
+.tab{padding:10px 16px;font-weight:600;color:var(--muted);border-bottom:3px solid transparent;margin-bottom:-1px}
+.tab[aria-selected="true"]{color:var(--ink);border-color:var(--ink)}
+.panel{display:none;padding-top:18px}
+.panel.open{display:block}
+.sum{color:var(--muted);margin-bottom:12px}
+.table-wrap{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:14px}
+table{width:100%;border-collapse:collapse;min-width:560px;font-size:15px}
+th{text-align:left;font-weight:600;color:var(--muted);padding:12px 16px;border-bottom:1px solid var(--line)}
+td{padding:12px 16px;border-top:1px solid var(--line);font-variant-numeric:tabular-nums}
+tr:first-child td{border-top:0}
+
+@media (max-width:880px){
+  body{padding:16px 16px 40px}
+  .stage{grid-template-columns:1fr}}
+@media (prefers-reduced-motion:reduce){
+  *{transition:none!important;animation:none!important}
+}
 </style>
 </head>
-<body>
+<body data-state="on">
+<div class="wrap">
 
-<main class="main">
-  <div class="top">
-    <h1>Monitor de Laboratorio</h1>
-    <span class="pill" id="status">Sistema activo</span>
-  </div>
-
-  <section class="grid">
-    <button class="tile power" id="power" onclick="togglePower()" aria-pressed="true">
-      <span class="ico">⏻</span><span id="powerLbl">ON</span>
-    </button>
-
-    <div class="cam" id="cam">
-      <img id="camImg" alt="Transmisión en vivo" hidden>
-      <div class="ph" id="camPh"><span>🎥</span>Transmisión en vivo<br>Conecta aquí tu cámara en Ajustes</div>
-      <div class="count">👤 <span id="people">0</span></div>
-      <div class="warn">⚠️</div>
+  <header class="top">
+    <h1>Monitor de laboratorio</h1>
+    <div class="top-right">
+      <span class="status" id="status" role="status">Sistema activo</span>
+      <button class="icon-btn" id="cfgBtn" aria-expanded="false" aria-controls="cfg" onclick="toggleCfg()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+        Ajustes
+      </button>
     </div>
-
-    <div class="tile">
-      <span>MODO ALERTA</span><span class="ico">🚨</span>
-      <button class="sw" id="alertSw" role="switch" aria-checked="false" aria-label="Modo alerta" onclick="toggleAlert()"></button>
-    </div>
-  </section>
-
-  <section class="grid row2">
-    <button class="tile" id="btnLab" onclick="showRep(false)"><span class="ico">🏠</span>LABORATORIO</button>
-    <button class="tile" id="btnRep" onclick="showRep(!$('rep').classList.contains('open'))"><span class="ico">⚠️</span>REPORTES</button>
-    <button class="tile" onclick="toggleCfg()"><span class="ico">⚙️</span>AJUSTES</button>
-  </section>
+  </header>
 
   <section class="cfg" id="cfg">
     <label for="camUrl">URL de la cámara</label>
-    <input id="camUrl" placeholder="http://192.168.1.50:81/stream">
+    <input id="camUrl" placeholder="http://100.74.216.50:8082/stream">
     <button class="btn" onclick="setCam($('camUrl').value.trim())">Guardar</button>
+    <p class="hint">Déjala vacía para usar el detector de esta Raspberry (puerto 8082).</p>
   </section>
 
-  <section class="rep" id="rep">
-    <h2>Reportes</h2>
-    <p class="sum" id="repSum"></p>
-    <table>
-      <thead><tr><th>Persona</th><th>Hora de entrada</th><th>Hora de salida</th><th>Estado</th></tr></thead>
-      <tbody id="repRows"></tbody>
-    </table>
+  <section class="stage">
+    <div class="frame">
+      <div class="cam" id="cam">
+        <img id="camImg" alt="Transmisión en vivo del laboratorio" hidden>
+        <div class="ph" id="camPh">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
+          <strong id="camTitle">Conectando con la cámara…</strong>
+          <span id="camMsg"></span>
+        </div>
+      </div>
+    </div>
+
+    <aside class="rail">
+      <div class="block count">
+        <span>Personas dentro</span>
+        <b id="people">0</b>
+      </div>
+      <div class="block">
+        <button class="power" id="power" onclick="togglePower()" aria-pressed="true">
+          <span class="dot"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 3v9"/><path d="M6.3 6.3a8 8 0 1 0 11.4 0"/></svg></span>
+          <span><span id="powerLbl">Apagar sistema</span><small id="powerHint">El sistema está encendido</small></span>
+        </button>
+      </div>
+      <div class="block row">
+        <label for="alertSw">Modo alerta<small id="alertHint">Desactivado</small></label>
+        <button class="sw" id="alertSw" role="switch" aria-checked="false" onclick="toggleAlert()"></button>
+      </div>
+    </aside>
   </section>
-</main>
+
+  <nav class="tabs" role="tablist">
+    <button class="tab" id="btnLab" role="tab" aria-selected="true" aria-controls="lab" onclick="showRep(false)">Laboratorio</button>
+    <button class="tab" id="btnRep" role="tab" aria-selected="false" aria-controls="rep" onclick="showRep(true)">Reportes</button>
+  </nav>
+
+  <section class="panel open" id="lab" role="tabpanel" aria-labelledby="btnLab">
+    <p class="sum" id="labSum"></p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Persona</th><th>Hora de entrada</th></tr></thead>
+        <tbody id="labRows"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel" id="rep" role="tabpanel" aria-labelledby="btnRep">
+    <p class="sum" id="repSum"></p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Persona</th><th>Hora de entrada</th><th>Hora de salida</th><th>Estado</th></tr></thead>
+        <tbody id="repRows"></tbody>
+      </table>
+    </div>
+  </section>
+</div>
 
 <script>
-
-const DEFAULT_CAM_URL = "";
+// The detector (ppe_detector.py --web) runs on the same Pi as this dashboard.
+const DEFAULT_CAM_URL = location.protocol + "//" + location.hostname + ":8082/stream";
 const $ = id => document.getElementById(id);
 
 let on = false;
 let alertOn = false;
 let busy = false;
+let lost = false;
 
 async function api(url, options = {}) {
     const respuesta = await fetch(url, {
@@ -146,21 +212,21 @@ async function api(url, options = {}) {
 
 function setStatus() {
     const s = $("status");
-
-    s.className = "pill" +
-        (!on ? " off" : alertOn ? " alert" : "");
-
-    s.textContent = !on
-        ? "Sistema apagado"
+    s.classList.toggle("lost", lost);
+    s.textContent = lost ? "Sin conexión"
+        : !on ? "Sistema apagado"
         : alertOn ? "Modo alerta" : "Sistema activo";
+
+    document.body.dataset.state = !on ? "off" : alertOn ? "alert" : "on";
 
     $("power").classList.toggle("off", !on);
     $("power").setAttribute("aria-pressed", on);
-    $("powerLbl").textContent = on ? "ON" : "OFF";
+    $("powerLbl").textContent = on ? "Apagar sistema" : "Encender sistema";
+    $("powerHint").textContent = on ? "El sistema está encendido" : "El sistema está apagado";
 
     $("alertSw").setAttribute("aria-checked", alertOn);
-    $("cam").classList.toggle("dim", !on);
-    $("cam").classList.toggle("alert", on && alertOn);
+    $("alertHint").textContent = !on ? "Enciende el sistema primero"
+        : alertOn ? "Activado" : "Desactivado";
     $("alertSw").disabled = !on || busy;
     $("power").disabled = busy;
 }
@@ -201,7 +267,7 @@ async function guardarEstado(activo, alerta) {
 
     } catch (error) {
         console.error(error);
-        alert("No se pudo actualizar el sistema.");
+        alert("No se pudo actualizar el sistema. Revisa la conexión con la Raspberry e inténtalo de nuevo.");
     } finally {
         busy = false;
         setStatus();
@@ -217,51 +283,12 @@ function toggleAlert() {
     guardarEstado(on, !alertOn);
 }
 
-function setPeople(n) {
-    $("people").textContent = n;
-}
-
-async function cargarPersonas() {
-    const datos = await api("/api/en-laboratorio");
-    setPeople(datos.length);
-}
-
-function setCam(url) {
-    const img = $("camImg");
-
-    if (!url) {
-        img.removeAttribute("src");
-        img.hidden = true;
-        $("camPh").style.display = "flex";
-        return;
-    }
-
-    img.onload = () => {
-        img.hidden = false;
-        $("camPh").style.display = "none";
-    };
-
-    img.onerror = () => {
-        img.hidden = true;
-        $("camPh").style.display = "flex";
-        $("camPh").textContent =
-            "No se pudo conectar con la cámara.";
-    };
-
-    img.src = url;
-    localStorage.setItem("camUrl", url);
-}
-
-function toggleCfg() {
-    $("cfg").classList.toggle("open");
-}
-
 function formatoFecha(valor) {
     if (!valor) return "";
     return new Date(valor).toLocaleString("es-MX");
 }
 
-function agregarFila(valores) {
+function agregarFila(tbody, valores) {
     const fila = document.createElement("tr");
 
     valores.forEach(valor => {
@@ -270,7 +297,79 @@ function agregarFila(valores) {
         fila.appendChild(celda);
     });
 
-    $("repRows").appendChild(fila);
+    $(tbody).appendChild(fila);
+}
+
+async function cargarPersonas() {
+    const datos = await api("/api/en-laboratorio");
+
+    $("people").textContent = datos.length;
+    $("labRows").replaceChildren();
+    $("labSum").textContent = datos.length === 1
+        ? "1 persona en el laboratorio"
+        : datos.length + " personas en el laboratorio";
+
+    datos.forEach(p => agregarFila("labRows", [p.nombre, formatoFecha(p.entrada)]));
+
+    if (!datos.length) {
+        agregarFila("labRows", ["Nadie dentro ahora", "-"]);
+    }
+}
+
+let camWatch = null;
+
+function setCam(url) {
+    const img = $("camImg");
+    url = url || DEFAULT_CAM_URL;
+    clearInterval(camWatch);
+
+    const shown = () => {
+        clearInterval(camWatch);
+        img.hidden = false;
+        img.style.visibility = "";
+        $("camPh").hidden = true;
+    };
+    img.onload = shown;
+    // Browsers don't fire "load" for an MJPEG stream that never ends:
+    // the first frame has arrived once the image has a size.
+    img.hidden = false;
+    img.style.visibility = "hidden";
+    camWatch = setInterval(() => {
+        if (img.naturalWidth > 0) {
+            img.style.visibility = "";
+            shown();
+        }
+    }, 250);
+
+    img.onerror = () => {
+        clearInterval(camWatch);
+        img.hidden = true;
+        $("camPh").hidden = false;
+        $("camTitle").textContent = "No se pudo conectar con la cámara";
+        $("camMsg").replaceChildren(
+            "Comprueba que el detector esté en marcha en " + url + ". ",
+            Object.assign(document.createElement("button"), {
+                textContent: "Reintentar",
+                onclick: () => setCam(url)
+            })
+        );
+    };
+
+    $("camTitle").textContent = "Conectando con la cámara…";
+    $("camMsg").textContent = "";
+    $("camPh").hidden = false;
+    img.src = url;
+
+    try {
+        if (url === DEFAULT_CAM_URL) localStorage.removeItem("camUrl");
+        else localStorage.setItem("camUrl", url);
+    } catch (e) {}
+}
+
+function toggleCfg() {
+    const open = $("cfg").classList.toggle("open");
+    $("cfgBtn").setAttribute("aria-expanded", open);
+    if (open) $("camUrl").focus();
 }
 
 async function cargarReportes() {
@@ -286,7 +385,7 @@ async function cargarReportes() {
         reportes.length + " incidencias";
 
     historial.forEach(r => {
-        agregarFila([
+        agregarFila("repRows", [
             r.nombre,
             formatoFecha(r.entrada),
             r.salida
@@ -297,7 +396,7 @@ async function cargarReportes() {
     });
 
     reportes.forEach(r => {
-        agregarFila([
+        agregarFila("repRows", [
             "Incidencia",
             formatoFecha(r.creado),
             "-",
@@ -306,22 +405,18 @@ async function cargarReportes() {
     });
 
     if (!historial.length && !reportes.length) {
-        agregarFila(["Sin registros", "-", "-", "-"]);
+        agregarFila("repRows", ["Sin registros", "-", "-", "-"]);
     }
 }
 
 function showRep(open) {
     $("rep").classList.toggle("open", open);
-    $("btnRep").classList.toggle("sel", open);
-    $("btnLab").classList.toggle("sel", !open);
+    $("lab").classList.toggle("open", !open);
+    $("btnRep").setAttribute("aria-selected", open);
+    $("btnLab").setAttribute("aria-selected", !open);
 
     if (open) {
         cargarReportes().catch(console.error);
-
-        $("rep").scrollIntoView({
-            behavior: "smooth",
-            block: "nearest"
-        });
     }
 }
 
@@ -335,20 +430,21 @@ async function actualizar() {
         if ($("rep").classList.contains("open")) {
             await cargarReportes();
         }
+        lost = false;
 
     } catch (error) {
         console.error(error);
-        $("status").textContent = "Sin conexión";
+        lost = true;
     }
+    setStatus();
 }
 
-const camUrl =
-    localStorage.getItem("camUrl") || DEFAULT_CAM_URL;
+let camUrl = "";
+try { camUrl = localStorage.getItem("camUrl") || ""; } catch (e) {}
 
 $("camUrl").value = camUrl;
 setCam(camUrl);
 setStatus();
-showRep(false);
 actualizar();
 
 setInterval(actualizar, 3000);
