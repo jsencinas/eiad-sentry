@@ -18,6 +18,7 @@ ESP32-CAM (or laptop webcam) --MJPEG/WiFi--> Raspberry Pi 5: ppe_detector.py -->
 | `sentry/inference.py` | YOLOv8 inference and tracking |
 | `sentry/output.py` | Annotated frames, `on_violation` hook, console stats |
 | `sentry/web.py` | Live web viewer (MJPEG in the browser) |
+| `sentry/database.py` | Writes alerts and the live lab state to the lab-monitor PostgreSQL database |
 | `frame_ingest.py`, `sentry/ingest.py` | Receives frames pushed by the ESP32-CAM over HTTPS and re-serves them as local MJPEG |
 | `firmware/` | ESP32-CAM firmware that pushes frames to the Pi ([guide](firmware/README.md)) |
 | `tools/` | ESP32-CAM simulator for the laptop and a stream check for the Pi ([guide](tools/README.md)) |
@@ -102,12 +103,32 @@ The video shows students, so by default the viewer **only listens on the Pi's Ta
 
 Frames are only JPEG-encoded while someone is watching, so the viewer costs almost nothing when nobody has it open.
 
+## Lab-monitor database
+
+With `--db`, the detector writes to the lab-monitor dashboard's PostgreSQL database. It needs migration `004_faltantes_y_permisos.sql` from the `lab-monitor` branch, and `pip install "psycopg[binary]"`.
+
+```bash
+python ppe_detector.py --demo --require "cell phone" --source http://ESP32_IP/stream --save-dir out \
+    --db postgresql:///lab_monitor --db-map "cell phone=glasses"
+```
+
+| Table | What the detector writes |
+|---|---|
+| `incidencias` | One row per alert: `falta_lentes`, `falta_bata`, the readable `faltante` text, the photo path and the person's track number |
+| `estado_laboratorio` | Live state every 2 s and on every change: people in view (`cantidad_personas`), how many lack glasses (`sin_lentes`) or a coat (`sin_bata`), and `deteccion_estado`. If no frames arrive for 5 s, or the detector stops, it becomes `SIN_SENAL` |
+
+The database only knows two items, safety glasses and lab coat. The real model's `glasses` and `coat` map to them by themselves. In demo mode, `--db-map` says which one each substitute object stands for.
+
+Database writes happen in a background thread: if the database is slow or down, detection carries on, alerts wait in a queue, and writing resumes when it is back (`[db] Writing again`).
+
+`postgresql:///lab_monitor` connects through the local socket as your own user, who must be a member of the `lab_monitor` role.
+
 ## Arguments
 
 ```
 python ppe_detector.py --source SOURCE [--demo] [--require OBJECTS] [--model WEIGHTS]
     [--conf 0.4] [--imgsz 640] [--save-dir out] [--cooldown 10] [--show]
-    [--web] [--web-host HOST] [--web-port 8082]
+    [--web] [--web-host HOST] [--web-port 8082] [--db DSN] [--db-map ITEM=glasses|coat]
     [--window 15] [--min-samples 5] [--stats-interval 5]
 ```
 
@@ -125,6 +146,8 @@ python ppe_detector.py --source SOURCE [--demo] [--require OBJECTS] [--model WEI
 | `--web` | off | Live web viewer |
 | `--web-host` | Tailscale IP | Address the viewer listens on |
 | `--web-port` | `8082` | Viewer port (8081 is the simulator, 81 the ESP32-CAM) |
+| `--db` | off | Write alerts and the live state to the lab-monitor database |
+| `--db-map` | none | Demo: which database item (`glasses`, `coat`) each substitute object stands for |
 | `--window` | `15` | Frames in the majority vote window |
 | `--min-samples` | `5` | Samples needed before deciding |
 | `--stats-interval` | `5` | Seconds between stats lines |
@@ -138,7 +161,7 @@ If the model lacks a needed class, the script stops at startup and lists the cla
 3. **Association:** each PPE detection belongs to at most one person.
 4. **Smoothing:** per person and item, a majority vote over the last 15 frames, with no decision before 5 samples. One bad frame does not trigger an alert.
 5. **Verdict per person:** `OK`, `MISSING` (with the list of missing items), `UNVERIFIABLE` or `PENDING` (not enough frames yet).
-6. **`on_violation(person_id, missing, frame)`** in `sentry/output.py`: today it prints and saves the photo. This is where the alarm and MySQL will be connected later.
+6. **`on_violation(person_id, missing, frame)`** in `sentry/output.py`: prints and saves the photo; with `--db` the alert is also recorded in the database. This is where the alarm will be connected later.
 
 ## Tests
 
