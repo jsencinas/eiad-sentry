@@ -30,10 +30,13 @@ Recent Raspberry Pi OS blocks global `pip` (PEP 668): use a venv, never `--break
 
 ```bash
 sudo apt install python3-full python3-venv
-python3 -m venv ~/venv-stream
-source ~/venv-stream/bin/activate
+python3 -m venv .venv
+source .venv/bin/activate
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 pip install -r requirements.txt
 ```
+
+Install the CPU build of PyTorch first. On ARM, the default PyPI build of `torch` pulls in several GB of NVIDIA CUDA packages the Pi cannot use, and unpacking them can fill `/tmp` (a 4 GB RAM disk on the Pi). If pip still runs out of space, add `TMPDIR=~/.cache/pip-tmp` in front of the command.
 
 If `ultralytics` pulled in `opencv-python` (GUI build) and you get `libGL` errors:
 
