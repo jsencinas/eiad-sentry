@@ -6,7 +6,10 @@ Usage:
 Sends one JPEG per request over a single keep-alive connection, exactly like
 firmware/esp32cam_push, so the whole path (Funnel -> frame_ingest.py ->
 ppe_detector.py) can be tested from the laptop before flashing the camera.
---camera takes a webcam index, a video file (looped) or a stream URL.
+--camera takes a webcam index, a device path, a video file (looped) or a
+stream URL. If the webcam disconnects, it is reopened automatically. On Linux
+a USB reconnect can change the index, so a stable path survives it better:
+    --camera /dev/v4l/by-id/usb-...-video-index0   (see ls /dev/v4l/by-id/)
 """
 
 from __future__ import annotations
@@ -25,9 +28,11 @@ TOKEN_ENV = "SENTRY_INGEST_TOKEN"
 
 
 def open_source(source: str):
+    """Open a webcam index, device path, video file or URL; None if it fails."""
     cap = cv2.VideoCapture(int(source) if source.isdigit() else source)
     if not cap.isOpened():
-        raise SystemExit(f"Could not open {source}")
+        cap.release()
+        return None
     return cap
 
 
@@ -53,7 +58,10 @@ def main() -> None:
     path = url.path or "/frame"
 
     cap = open_source(args.camera)
-    is_file = not args.camera.isdigit() and "://" not in args.camera
+    if cap is None:
+        raise SystemExit(f"Could not open {args.camera}")
+    is_file = os.path.isfile(args.camera)  # loop video files; /dev/video* are cameras
+    failures = 0
     conn = None
     sent = 0
     start = last_report = time.monotonic()
@@ -61,14 +69,25 @@ def main() -> None:
     try:
         while not args.seconds or time.monotonic() - start < args.seconds:
             t0 = time.monotonic()
-            ok, frame = cap.read()
+            ok, frame = cap.read() if cap is not None else (False, None)
             if not ok:
-                if is_file:
+                if is_file and cap is not None:
                     cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
                     continue
-                print("Camera read failed, retrying...")
+                # A webcam that was unplugged or reset (e.g. a USB reconnect)
+                # never recovers on the old handle: reopen it.
+                failures += 1
+                if failures >= 3:
+                    print("Camera lost, reopening...")
+                    if cap is not None:
+                        cap.release()
+                    cap = open_source(args.camera)
+                    if cap is not None:
+                        print("Camera reopened")
+                        failures = 0
                 time.sleep(1.0)
                 continue
+            failures = 0
             if frame.shape[1] != args.width or frame.shape[0] != args.height:
                 frame = cv2.resize(frame, (args.width, args.height))
             ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, args.quality])
@@ -108,7 +127,8 @@ def main() -> None:
     except KeyboardInterrupt:
         pass
     finally:
-        cap.release()
+        if cap is not None:
+            cap.release()
         if conn is not None:
             conn.close()
 
