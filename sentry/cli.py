@@ -39,6 +39,18 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--web", action="store_true", help="serve the annotated stream in a web page")
     p.add_argument("--web-host", help="address for the web viewer (default: Tailscale IP, else 127.0.0.1)")
     p.add_argument("--web-port", type=int, default=8082, help="port for the web viewer (default: 8082)")
+    p.add_argument(
+        "--db",
+        metavar="DSN",
+        help="write alerts and the live state to the lab-monitor PostgreSQL database, "
+        "e.g. postgresql:///lab_monitor",
+    )
+    p.add_argument(
+        "--db-map",
+        metavar="ITEM=glasses|coat",
+        help='which database item each required item stands for, e.g. "cell phone=glasses" '
+        "(items called glasses or coat map to themselves)",
+    )
     return p
 
 
@@ -72,7 +84,7 @@ def status_payload(results, stats_line: str) -> dict:
 def run(args) -> None:
     import cv2
 
-    from sentry.output import AlertDispatcher, StatsPrinter, annotate
+    from sentry.output import AlertDispatcher, StatsPrinter, annotate, on_violation
     from sentry.stream import LatestFrameReader
 
     if args.demo:
@@ -80,8 +92,27 @@ def run(args) -> None:
     else:
         raise SystemExit("Only --demo mode is available for now.")
 
+    db = None
+    if args.db:
+        from sentry.database import DatabaseWriter, parse_db_map
+
+        try:
+            item_map = parse_db_map(args.db_map, required)
+        except ValueError as e:
+            raise SystemExit(f"Error: {e}") from None
+        db = DatabaseWriter(args.db, item_map).start()
+        print(f"[db] Writing to {args.db} ({', '.join(f'{k} as {v}' for k, v in item_map.items())})")
+    elif args.db_map:
+        raise SystemExit("--db-map needs --db")
+
+    def violation(track_id, missing, frame, save_dir):
+        photo = on_violation(track_id, missing, frame, save_dir)
+        if db is not None:
+            db.incident(track_id, missing, photo.resolve() if photo else None)
+        return photo
+
     smoother = Smoother(required, window=args.window, min_samples=args.min_samples)
-    alerts = AlertDispatcher(Cooldown(args.cooldown), args.save_dir)
+    alerts = AlertDispatcher(Cooldown(args.cooldown), args.save_dir, hook=violation)
     stats = StatsPrinter(args.stats_interval)
 
     hub = viewer = None
@@ -109,6 +140,8 @@ def run(args) -> None:
             observations = assign_ppe(found.persons, found.ppe, required, rule, frame.shape[0])
             results = smoother.update(observations)
             stats.update(found.inference_ms, results)
+            if db is not None:
+                db.live(results)
 
             annotated = annotate(
                 frame, found.persons, found.ppe, results,
@@ -132,6 +165,8 @@ def run(args) -> None:
     finally:
         print("[sentry] Stopping")
         reader.stop()
+        if db is not None:
+            db.close()
         if viewer is not None:
             viewer.stop()
         if args.show:

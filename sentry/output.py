@@ -70,8 +70,9 @@ def annotate(
 def on_violation(person_id: int, missing: Sequence[str], frame, save_dir: Path | None = None) -> Path | None:
     """Hook called when a person is missing PPE (already rate-limited per person).
 
-    Today it prints and saves the annotated frame. This is the place to
-    connect the alarm (relay, buzzer, LED) and the MySQL log later.
+    It prints and saves the annotated frame, and returns the photo's path.
+    With --db, the CLI also records the alert in the lab-monitor database.
+    This is the place to connect the alarm (relay, buzzer, LED) later.
     """
     stamp = datetime.now()
     print(f"[ALERT] {stamp:%Y-%m-%d %H:%M:%S} person #{person_id} missing: {', '.join(missing)}")
