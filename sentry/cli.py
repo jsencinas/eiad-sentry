@@ -54,6 +54,12 @@ def build_parser() -> argparse.ArgumentParser:
         "checking their PPE; with --db, record their entry and exit",
     )
     p.add_argument(
+        "--credential-debug",
+        action="store_true",
+        help="with --credential: print the text OCR finds and save the last frame it read "
+        "(credential_last.jpg in --save-dir), to see why a card is not recognized",
+    )
+    p.add_argument(
         "--db",
         metavar="DSN",
         help="write alerts and the live state to the lab-monitor PostgreSQL database, "
@@ -101,11 +107,17 @@ def status_payload(results, stats_line: str, waiting=(), names=None) -> dict:
     }
 
 
-def update_identities(identities, credential_reader, smoother, results, found, frame, db) -> list[int]:
+def update_identities(
+    identities, credential_reader, smoother, results, found, frame, db, debug_dir=None
+) -> list[int]:
     """Feed OCR reads, report arrivals and departures; return who still has to show a credential."""
-    from sentry.credentials import assign_reads
+    from sentry.credentials import assign_reads, find_matriculas
 
     for reads, persons in credential_reader.results():
+        if debug_dir is not None:
+            texts = [r.text for r in reads]
+            ids = [m for t in texts for m in find_matriculas(t)]
+            print(f"[credential] OCR: {len(texts)} texts, matrículas {ids or 'none'}: {texts[:12]}")
         for track_id, matricula in identities.add_reads(assign_reads(reads, persons)).items():
             print(f"[credential] #{track_id} identified as {matricula}")
             if db is not None:
@@ -117,6 +129,11 @@ def update_identities(identities, credential_reader, smoother, results, found, f
     waiting = identities.needs_credential(results)
     if waiting and credential_reader.due():
         credential_reader.submit(frame.copy(), found.persons)
+        if debug_dir is not None:
+            import cv2
+
+            debug_dir.mkdir(parents=True, exist_ok=True)
+            cv2.imwrite(str(debug_dir / "credential_last.jpg"), frame)
     return waiting
 
 
@@ -199,7 +216,10 @@ def run(args) -> None:
 
             waiting: list[int] = []
             if identities is not None:
-                waiting = update_identities(identities, credential_reader, smoother, results, found, frame, db)
+                debug_dir = (args.save_dir or Path("out")) if args.credential_debug else None
+                waiting = update_identities(
+                    identities, credential_reader, smoother, results, found, frame, db, debug_dir
+                )
             if db is not None:
                 db.live(results, unidentified=waiting)
 
