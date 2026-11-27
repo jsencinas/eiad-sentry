@@ -21,6 +21,7 @@ ESP32-CAM (or laptop webcam) --MJPEG/WiFi--> Raspberry Pi 5: ppe_detector.py -->
 | `sentry/database.py` | Writes alerts and the live lab state to the lab-monitor PostgreSQL database |
 | `frame_ingest.py`, `sentry/ingest.py` | Receives frames pushed by the ESP32-CAM over HTTPS and re-serves them as local MJPEG |
 | `firmware/` | ESP32-CAM firmware that pushes frames to the Pi ([guide](firmware/README.md)) |
+| `CAM/` | ESP32-CAM firmware (PlatformIO) that serves the MJPEG stream on the same network: `http://CAMERA_IP/stream`. WiFi credentials go in `CAM/src/secrets.h` (git-ignored, copy `secrets.example.h`). The camera is mounted sideways, so run the detector with `--rotate 270` |
 | `tools/` | ESP32-CAM simulator for the laptop and a stream check for the Pi ([guide](tools/README.md)) |
 | `tests/` | `pytest` tests; they need no camera, model or OpenCV |
 | `raspberry_setup.md` | How the Pi was connected to the Tec enterprise WiFi and Tailscale |
