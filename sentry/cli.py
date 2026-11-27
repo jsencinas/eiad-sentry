@@ -21,6 +21,14 @@ def build_parser() -> argparse.ArgumentParser:
         description="Detect people and check their PPE on a video stream.",
     )
     p.add_argument("--source", required=True, help="stream URL, webcam index (0) or video file")
+    p.add_argument(
+        "--rotate",
+        type=int,
+        choices=(0, 90, 180, 270),
+        default=0,
+        help="turn every frame clockwise by this many degrees, for a camera mounted sideways "
+        "(e.g. 270 if the image arrives turned 90 degrees to the right)",
+    )
     p.add_argument("--demo", action="store_true", help="prototype mode with COCO yolov8n.pt and a substitute object")
     p.add_argument(
         "--require",
@@ -127,6 +135,11 @@ def run(args) -> None:
 
     print(f"[sentry] Mode: {'demo' if args.demo else 'real'} | required: {', '.join(required)}")
     reader = LatestFrameReader(args.source).start()
+    rotation = {
+        90: cv2.ROTATE_90_CLOCKWISE,
+        180: cv2.ROTATE_180,
+        270: cv2.ROTATE_90_COUNTERCLOCKWISE,
+    }.get(args.rotate)
     seq = 0
     try:
         while True:
@@ -135,6 +148,8 @@ def run(args) -> None:
                 if reader.finished:
                     break
                 continue
+            if rotation is not None:
+                frame = cv2.rotate(frame, rotation)  # ~1 ms; only analyzed frames are turned
 
             found = detector(frame)
             observations = assign_ppe(found.persons, found.ppe, required, rule, frame.shape[0])
