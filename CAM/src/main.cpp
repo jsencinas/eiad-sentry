@@ -46,7 +46,7 @@
 static const char *HOSTNAME = "sentry-cam";       // http://sentry-cam.local/stream
 static const int JPEG_QUALITY = 12;               // 10-63, lower = better image, bigger frames
 static const int SOFT_JPEG_QUALITY = 80;          // sensors without hardware JPEG (1-100)
-static const uint32_t WIFI_ATTEMPT_MS = 25000;      // one PEAP login attempt (Tec can be slow)
+static const uint32_t WIFI_ATTEMPT_MS = 40000;      // one PEAP login attempt (Tec can be slow)
 static const uint32_t WIFI_RETRY_DELAY_MS = 15000;  // pause between attempts
 static const uint8_t WIFI_MAX_ATTEMPTS = 5;         // then restart the board as a last resort
 static const uint32_t WIFI_LOST_RETRY_MS = 60000;   // reconnect by hand if the driver has not
@@ -173,20 +173,36 @@ static bool tryWiFiOnce() {
                   WiFi.status());
     return false;
   }
-  WiFi.setSleep(false);  // again: some cores reset it when the connection comes up
-  Serial.printf("\nConnected: IP %s, signal %d dBm\n", WiFi.localIP().toString().c_str(), WiFi.RSSI());
   return true;
+}
+
+// Waits up to `ms`, returning early (true) if a slow login completes meanwhile.
+static bool waitForLateConnection(uint32_t ms) {
+  uint32_t start = millis();
+  while (millis() - start < ms) {
+    if (WiFi.status() == WL_CONNECTED) return true;
+    delay(250);
+  }
+  return WiFi.status() == WL_CONNECTED;
 }
 
 // Retries in place instead of restarting: a restart throws away a slow PEAP
 // login half-way, and many failed logins can get the device blocked for a while.
 void connectWiFi() {
   for (uint8_t attempt = 1; attempt <= WIFI_MAX_ATTEMPTS; attempt++) {
-    if (tryWiFiOnce()) return;
-    if (attempt < WIFI_MAX_ATTEMPTS) {
+    bool connected = tryWiFiOnce();
+    // A slow login can complete just after the attempt timed out: keep it
+    // instead of disconnecting it with the next attempt.
+    if (!connected && attempt < WIFI_MAX_ATTEMPTS) {
       Serial.printf("Retrying in %u s (attempt %u of %u)\n", (unsigned)(WIFI_RETRY_DELAY_MS / 1000), attempt + 1,
                     WIFI_MAX_ATTEMPTS);
-      delay(WIFI_RETRY_DELAY_MS);
+      connected = waitForLateConnection(WIFI_RETRY_DELAY_MS);
+      if (connected) Serial.println("The login completed late: keeping the connection");
+    }
+    if (connected) {
+      WiFi.setSleep(false);  // again: some cores reset it when the connection comes up
+      Serial.printf("Connected: IP %s, signal %d dBm\n", WiFi.localIP().toString().c_str(), WiFi.RSSI());
+      return;
     }
   }
   Serial.println("Could not connect, restarting");
