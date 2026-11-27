@@ -119,13 +119,19 @@ class FakeCursor:
     def execute(self, sql, params):
         if self.db.fail:
             raise OSError("connection refused")
-        table = "incidencias" if "INSERT" in sql else "estado_laboratorio"
+        table = next(t for t in ("incidencias", "personas", "accesos", "estado_laboratorio")
+                     if f"public.{t}" in sql)
         self.db.writes.append((table, params))
+        self.db.next_id += 1
+
+    def fetchone(self):
+        return (self.db.next_id,)
 
 
 class FakeDB:
     def __init__(self):
         self.writes = []
+        self.next_id = 100
         self.fail = False
         self.connections = 0
 
@@ -153,9 +159,9 @@ class Clock:
         return self.t
 
 
-def make_writer(item_map=BOTH):
+def make_writer(item_map=BOTH, credentials=False):
     db, clock, logs = FakeDB(), Clock(), []
-    writer = DatabaseWriter("dsn", item_map, refresh=2.0, stale_after=5.0,
+    writer = DatabaseWriter("dsn", item_map, credentials=credentials, refresh=2.0, stale_after=5.0,
                             connect=db.connect, clock=clock, log=logs.append)
     return writer, db, clock, logs
 
@@ -192,7 +198,7 @@ def test_incidents_are_inserted_with_what_is_missing():
     writer, db, _, _ = make_writer({"cell phone": ("glasses",)})
     writer.incident(4, ["cell phone"], "/out/x.jpg")
     writer.step()
-    assert ("incidencias", (4, True, False, "/out/x.jpg")) in db.writes
+    assert ("incidencias", (4, True, False, "/out/x.jpg", None)) in db.writes
 
 
 def test_database_outage_keeps_incidents_and_retries():
@@ -207,7 +213,7 @@ def test_database_outage_keeps_incidents_and_retries():
 
     db.fail = False
     writer.step()
-    assert ("incidencias", (1, True, False, None)) in db.writes
+    assert ("incidencias", (1, True, False, None, None)) in db.writes
     assert db.live_writes() == [LiveState(1, 1, 0, False, "CONFIRMADA").params()]
     assert logs[-1] == "[db] Writing again"
 
@@ -217,5 +223,58 @@ def test_close_flushes_and_marks_no_signal():
     writer.live({1: person(1, Verdict.OK)})
     writer.incident(2, ["coat"])
     writer.close()
-    assert ("incidencias", (2, False, True, None)) in db.writes
+    assert ("incidencias", (2, False, True, None, None)) in db.writes
     assert db.live_writes()[-1] == NO_SIGNAL.params()
+
+
+# --- credential check ---------------------------------------------------------
+
+
+def test_unidentified_people_are_counted_but_not_judged():
+    results = {1: person(1, Verdict.MISSING, ["glasses"]), 2: person(2, Verdict.MISSING, ["coat"])}
+    state = live_state(results, BOTH, unidentified={2})
+    assert state == LiveState(2, 1, 0, False, "CONFIRMADA", without_credential=1)
+
+
+def test_waiting_for_a_credential_is_pending_not_protected():
+    state = live_state({1: person(1, Verdict.OK)}, BOTH, unidentified={1})
+    assert (state.status, state.protected, state.without_credential) == ("PENDIENTE", False, 1)
+
+
+def test_identified_student_gets_an_entry_and_their_incidents():
+    writer, db, _, _ = make_writer(credentials=True)
+    writer.identified(5, "A01234567")
+    writer.incident(5, ["coat"], "/out/a.jpg")
+    writer.incident(9, ["coat"])  # someone else, not identified
+    writer.step()
+    persona_id = 101  # the fake database numbers new rows 101, 102, ...
+    assert db.writes[0] == ("personas", ("A01234567", "A01234567"))
+    assert db.writes[1] == ("accesos", (persona_id,))
+    assert ("incidencias", (5, False, True, "/out/a.jpg", persona_id)) in db.writes
+    assert ("incidencias", (9, False, True, None, None)) in db.writes
+
+
+def test_leaving_the_frame_closes_the_entry():
+    writer, db, _, _ = make_writer(credentials=True)
+    writer.identified(5, "A01234567")
+    writer.step()
+    acceso_id = 102
+    writer.departed(5)
+    writer.departed(5)  # a second report does nothing
+    writer.step()
+    assert [w for w in db.writes if w[0] == "accesos"] == [("accesos", (101,)), ("accesos", (acceso_id,))]
+
+
+def test_stopping_the_detector_closes_open_entries():
+    writer, db, _, _ = make_writer(credentials=True)
+    writer.identified(5, "A01234567")
+    writer.close()
+    assert ("accesos", (102,)) in db.writes
+
+
+def test_live_state_includes_the_waiting_count_only_with_credentials():
+    for credentials, size in ((False, 7), (True, 8)):
+        writer, db, _, _ = make_writer(credentials=credentials)
+        writer.live({1: person(1, Verdict.OK)}, unidentified={1})
+        writer.step()
+        assert len(db.live_writes()[-1]) == size
