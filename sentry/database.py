@@ -21,16 +21,25 @@ import queue
 import threading
 import time
 from dataclasses import dataclass
-from typing import Callable, Mapping, Sequence
+from typing import Callable, Collection, Mapping, Sequence
 
 from sentry.smoothing import PersonResult, Verdict
 
 DB_ITEMS = ("glasses", "coat")
 
 INSERT_INCIDENT = """
-    INSERT INTO public.incidencias (track_id, falta_lentes, falta_bata, foto)
-    VALUES (%s, %s, %s, %s)
+    INSERT INTO public.incidencias (track_id, falta_lentes, falta_bata, foto, persona_id)
+    VALUES (%s, %s, %s, %s, %s)
 """
+
+# Credential check (migration 005): students by matrícula and their entries.
+UPSERT_PERSONA = """
+    INSERT INTO public.personas (nombre, matricula) VALUES (%s, %s)
+    ON CONFLICT (matricula) DO UPDATE SET matricula = EXCLUDED.matricula
+    RETURNING id
+"""
+OPEN_ACCESO = "INSERT INTO public.accesos (persona_id) VALUES (%s) RETURNING id"
+CLOSE_ACCESO = "UPDATE public.accesos SET salida = now() WHERE id = %s AND salida IS NULL"
 
 UPDATE_LIVE = """
     UPDATE public.estado_laboratorio
@@ -43,6 +52,9 @@ UPDATE_LIVE = """
         ultima_deteccion = CASE WHEN %s THEN now() ELSE ultima_deteccion END
     WHERE id = 1
 """
+UPDATE_LIVE_WITH_CREDENTIALS = UPDATE_LIVE.replace(
+    "    WHERE id = 1", "        , sin_credencial = %s\n    WHERE id = 1"
+)
 
 
 def parse_db_map(text: str | None, required: Sequence[str]) -> dict[str, tuple[str, ...]]:
@@ -85,9 +97,10 @@ class LiveState:
     without_coat: int
     protected: bool  # people in view and every one of them is OK
     status: str  # CONFIRMADA, PENDIENTE or SIN_SENAL
+    without_credential: int = 0  # still have to show their credential
 
-    def params(self) -> tuple:
-        return (
+    def params(self, credentials: bool = False) -> tuple:
+        values = (
             self.people > 0,
             self.protected,
             self.people,
@@ -96,6 +109,7 @@ class LiveState:
             self.status,
             self.people > 0,  # refresh ultima_deteccion only when someone is seen
         )
+        return values + (self.without_credential,) if credentials else values
 
 
 NO_SIGNAL = LiveState(0, 0, 0, False, "SIN_SENAL")
@@ -105,21 +119,32 @@ def missing_db_items(missing: Sequence[str], item_map: Mapping[str, Sequence[str
     return {target for i in missing if i in item_map for target in item_map[i]}
 
 
-def live_state(results: Mapping[int, PersonResult], item_map: Mapping[str, Sequence[str]]) -> LiveState:
-    """Summarize the people in the current frame."""
-    verdicts = [r.verdict for r in results.values()]
-    lacking = [missing_db_items(r.missing, item_map) for r in results.values() if r.verdict is Verdict.MISSING]
-    undecided = any(v in (Verdict.PENDING, Verdict.UNVERIFIABLE) for v in verdicts)
-    if verdicts and not lacking and undecided:
+def live_state(
+    results: Mapping[int, PersonResult],
+    item_map: Mapping[str, Sequence[str]],
+    unidentified: Collection[int] = (),
+) -> LiveState:
+    """Summarize the people in the current frame.
+
+    People in `unidentified` (credential check on, not identified yet) are
+    counted but not judged: their PPE only counts once they are identified.
+    """
+    judged = [r for t, r in results.items() if t not in unidentified]
+    waiting = sum(1 for t in results if t in unidentified)
+    verdicts = [r.verdict for r in judged]
+    lacking = [missing_db_items(r.missing, item_map) for r in judged if r.verdict is Verdict.MISSING]
+    undecided = waiting > 0 or any(v in (Verdict.PENDING, Verdict.UNVERIFIABLE) for v in verdicts)
+    if results and not lacking and undecided:
         status = "PENDIENTE"
     else:
         status = "CONFIRMADA"
     return LiveState(
-        people=len(verdicts),
+        people=len(results),
         without_glasses=sum("glasses" in m for m in lacking),
         without_coat=sum("coat" in m for m in lacking),
-        protected=bool(verdicts) and all(v is Verdict.OK for v in verdicts),
+        protected=bool(results) and not waiting and all(v is Verdict.OK for v in verdicts),
         status=status,
+        without_credential=waiting,
     )
 
 
@@ -140,12 +165,17 @@ def _psycopg_connect(dsn: str):
 
 
 class DatabaseWriter:
-    """Queues incidents and live-state updates and writes them from a thread."""
+    """Queues incidents, identities and live-state updates and writes them from a thread.
+
+    With `credentials`, identified students are recorded in personas/accesos
+    and their incidents carry their persona_id (needs migration 005).
+    """
 
     def __init__(
         self,
         dsn: str,
         item_map: Mapping[str, Sequence[str]],
+        credentials: bool = False,
         refresh: float = 2.0,
         stale_after: float = 5.0,
         connect: Callable[[str], object] | None = None,
@@ -154,13 +184,15 @@ class DatabaseWriter:
     ) -> None:
         self.dsn = dsn
         self.item_map = dict(item_map)
+        self.credentials = credentials
         self.refresh = refresh
         self.stale_after = stale_after
         self._connect = connect or _psycopg_connect
         self._clock = clock
         self._log = log
         self._conn = None
-        self._incidents: queue.Queue[tuple] = queue.Queue(maxsize=1000)
+        self._ops: queue.Queue[tuple] = queue.Queue(maxsize=1000)  # written in order
+        self._accesos: dict[int, tuple[int, int]] = {}  # track_id -> (persona_id, acceso_id)
         self._lock = threading.Lock()
         self._live: LiveState | None = None
         self._live_at = clock()
@@ -172,19 +204,29 @@ class DatabaseWriter:
 
     # --- called from the detection loop (never blocks) ---
 
-    def live(self, results: Mapping[int, PersonResult]) -> None:
-        state = live_state(results, self.item_map)
+    def live(self, results: Mapping[int, PersonResult], unidentified: Collection[int] = ()) -> None:
+        state = live_state(results, self.item_map, unidentified)
         with self._lock:
             self._live, self._live_at = state, self._clock()
 
     def incident(self, track_id: int, missing: Sequence[str], photo=None) -> None:
         params = incident_params(track_id, missing, self.item_map, photo)
-        if params is None:
-            return
+        if params is not None:
+            self._queue(("incident", track_id, params))
+
+    def identified(self, track_id: int, matricula: str) -> None:
+        """A student showed their credential: record the person and their entry."""
+        self._queue(("identified", track_id, matricula))
+
+    def departed(self, track_id: int) -> None:
+        """An identified student left the frame: close their entry."""
+        self._queue(("departed", track_id, None))
+
+    def _queue(self, op: tuple) -> None:
         try:
-            self._incidents.put_nowait(params)
+            self._ops.put_nowait(op)
         except queue.Full:
-            self._report("incident queue full, dropping an incident")
+            self._report(f"write queue full, dropping a {op[0]} record")
 
     # --- background thread ---
 
@@ -199,7 +241,9 @@ class DatabaseWriter:
         if self._thread is not None:
             self._thread.join(timeout)
         try:
-            self._flush_incidents()
+            self._flush_ops()
+            for track_id in list(self._accesos):  # the detector stops: everyone's entry ends
+                self._apply(("departed", track_id, None))
             self._write_live(NO_SIGNAL)
         except Exception as e:  # noqa: BLE001 - shutting down anyway
             self._report(f"could not write the final state: {e}")
@@ -212,9 +256,9 @@ class DatabaseWriter:
             self.step()
 
     def step(self) -> None:
-        """One write cycle: pending incidents, then the live state if due."""
+        """One write cycle: pending records in order, then the live state if due."""
         try:
-            self._flush_incidents()
+            self._flush_ops()
             with self._lock:
                 state, at = self._live, self._live_at
             now = self._clock()
@@ -240,19 +284,37 @@ class DatabaseWriter:
             self._conn = self._connect(self.dsn)
         return self._conn.cursor()
 
-    def _flush_incidents(self) -> None:
+    def _flush_ops(self) -> None:
         while True:
             try:
-                params = self._incidents.queue[0]  # peek: only drop it once written
+                op = self._ops.queue[0]  # peek: only drop it once written
             except IndexError:
                 return
-            with self._cursor() as cur:
-                cur.execute(INSERT_INCIDENT, params)
-            self._incidents.get_nowait()
+            self._apply(op)
+            self._ops.get_nowait()
+
+    def _apply(self, op: tuple) -> None:
+        kind, track_id, data = op
+        with self._cursor() as cur:
+            if kind == "incident":
+                persona_id = self._accesos.get(track_id, (None, None))[0]
+                cur.execute(INSERT_INCIDENT, data + (persona_id,))
+            elif kind == "identified":
+                # New students get their matrícula as name until someone edits it.
+                cur.execute(UPSERT_PERSONA, (data, data))
+                persona_id = cur.fetchone()[0]
+                cur.execute(OPEN_ACCESO, (persona_id,))
+                self._accesos[track_id] = (persona_id, cur.fetchone()[0])
+            elif kind == "departed":
+                entry = self._accesos.get(track_id)
+                if entry is not None:
+                    cur.execute(CLOSE_ACCESO, (entry[1],))
+                    del self._accesos[track_id]
 
     def _write_live(self, state: LiveState) -> None:
+        sql = UPDATE_LIVE_WITH_CREDENTIALS if self.credentials else UPDATE_LIVE
         with self._cursor() as cur:
-            cur.execute(UPDATE_LIVE, state.params())
+            cur.execute(sql, state.params(self.credentials))
             if cur.rowcount != 1:
                 raise RuntimeError("estado_laboratorio has no row with id = 1")
 
