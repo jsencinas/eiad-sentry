@@ -1,162 +1,163 @@
-# Conectar una Raspberry Pi a WiFi empresarial (WPA/WPA2 Enterprise) vía SSH
+# Connecting a Raspberry Pi to enterprise WiFi (WPA/WPA2 Enterprise) over SSH
 
-Documentación del proceso completo: qué hicimos, por qué, y cómo repetirlo o arreglarlo si algo falla.
+Documentation of the whole process: what we did, why, and how to repeat it or fix it if something breaks.
 
 ---
 
-## 1. El problema
+## 1. The problem
 
-Raspberry Pi Imager solo permite configurar redes WiFi **personales** (SSID + contraseña compartida). No tiene campos para redes **empresariales** (WPA/WPA2 Enterprise), que necesitan usuario, método EAP, identidad anónima, certificados, etc.
+Raspberry Pi Imager can only configure **personal** WiFi networks (SSID + shared password). It has no fields for **enterprise** networks (WPA/WPA2 Enterprise), which need a username, EAP method, anonymous identity, certificates, etc.
 
-La red del Tec (`Tec`) usa:
+The Tec network (`Tec`) uses:
 
-| Campo | Valor |
+| Field | Value |
 |---|---|
-| Seguridad | WPA & WPA2 Enterprise |
-| Autenticación | PEAP |
-| Identidad anónima | `Tec` |
-| Dominio | `wireless.itesm.mx` (no se usa sin certificado CA) |
-| Certificado CA | Ninguno ("No CA certificate is required") |
-| Versión PEAP | Automática |
-| Autenticación interna | MSCHAPv2 |
+| Security | WPA & WPA2 Enterprise |
+| Authentication | PEAP |
+| Anonymous identity | `Tec` |
+| Domain | `wireless.itesm.mx` (not used without a CA certificate) |
+| CA certificate | None ("No CA certificate is required") |
+| PEAP version | Automatic |
+| Inner authentication | MSCHAPv2 |
 
-## 2. La solución en resumen
+## 2. The solution in short
 
-1. Flashear la Pi con Imager usando el **hotspot del teléfono** como WiFi.
-2. Entrar a la Pi por **SSH** desde la laptop (ambas en el hotspot).
-3. Instalar **Tailscale** en la Pi y en la laptop, para poder volver a entrar sin importar en qué red esté la Pi.
-4. Crear el **perfil de WiFi empresarial** con `nmcli` (script).
-5. **Cambiar de red** de la Pi (con un temporizador de seguridad la primera vez).
-6. Reconectar por la **IP de Tailscale**.
+1. Flash the Pi with Imager using the **phone hotspot** as WiFi.
+2. Log in to the Pi over **SSH** from the laptop (both on the hotspot).
+3. Install **Tailscale** on the Pi and on the laptop, so you can get back in no matter which network the Pi is on.
+4. Create the **enterprise WiFi profile** with `nmcli` (script).
+5. **Switch the Pi's network** (with a safety timer the first time).
+6. Reconnect using the **Tailscale IP**.
 
 ---
 
-## 3. Conceptos clave
+## 3. Key concepts
 
-### 3.1 SSH: de qué computadora es la terminal
+### 3.1 SSH: which computer the terminal belongs to
 
-Cuando haces `ssh jorge@IP`, tu terminal pasa a **controlar la Pi**. Lo que escribes se ejecuta allá. Se nota en el prompt:
+When you run `ssh jorge@IP`, your terminal starts **controlling the Pi**. Whatever you type runs there. The prompt shows it:
 
 - `jorge@envy` → laptop
 - `jorge@raspberrio` → Pi
 
-`exit` te regresa a la laptop.
+`exit` takes you back to the laptop.
 
-### 3.2 La Pi tiene una sola antena WiFi
+### 3.2 The Pi has a single WiFi antenna
 
-Al conectarse a la red empresarial, **deja el hotspot**. La sesión SSH que pasaba por el hotspot muere, y la IP de la Pi cambia (la red empresarial le da otra).
+When it joins the enterprise network, it **leaves the hotspot**. The SSH session that went through the hotspot dies, and the Pi's IP changes (the enterprise network assigns a different one).
 
 ### 3.3 Tailscale
 
-Crea una red privada virtual entre **tus propios dispositivos**:
+Creates a private virtual network between **your own devices**:
 
-- Cada dispositivo recibe una IP fija `100.x.y.z` que **no cambia** aunque cambie de red.
-- Funciona sobre una interfaz virtual (`tailscale0`), separada de `wlan0`.
-- Usa el rango `100.64.0.0/10`, que casi nunca choca con redes reales (`10.x`, `172.16.x`, `192.168.x`).
-- Necesita: mismo login en ambos dispositivos y salida a internet en ambos.
+- Each device gets a fixed `100.x.y.z` IP that **does not change** even when the network changes.
+- It runs on a virtual interface (`tailscale0`), separate from `wlan0`.
+- It uses the `100.64.0.0/10` range, which almost never clashes with real networks (`10.x`, `172.16.x`, `192.168.x`).
+- It needs: the same login on both devices and internet access on both.
 
-No conecta la Pi al WiFi; solo te da una dirección fija para **volver a entrar**.
+It does not connect the Pi to WiFi; it only gives you a fixed address to **get back in**.
 
-### 3.4 NetworkManager y perfiles
+### 3.4 NetworkManager and profiles
 
-NetworkManager guarda **perfiles** de conexión. `nmcli connection add` solo **guarda** un perfil; no lo activa. Se activa con `nmcli connection up` o al reiniciar (si tiene `autoconnect`).
+NetworkManager stores connection **profiles**. `nmcli connection add` only **saves** a profile; it does not activate it. It is activated with `nmcli connection up` or on reboot (if it has `autoconnect`).
 
-Si hay varios perfiles disponibles, gana el de mayor `autoconnect-priority`.
+If several profiles are available, the one with the highest `autoconnect-priority` wins.
 
 ### 3.5 Netplan
 
-El perfil del hotspot se llama `netplan-wlan0-Galaxy S26 Ultra 7FE1`. El prefijo `netplan-wlan0-` indica que lo creó Imager vía cloud-init/netplan. Hay que usar el nombre **completo** con `nmcli`.
+The hotspot profile is called `netplan-wlan0-Galaxy S26 Ultra 7FE1`. The `netplan-wlan0-` prefix means Imager created it through cloud-init/netplan. You must use the **full** name with `nmcli`.
 
 ---
 
-## 4. Paso a paso
+## 4. Step by step
 
-### Paso 0: Flashear la Pi
+### Step 0: Flash the Pi
 
-En Raspberry Pi Imager (con permisos elevados si los pide; mejor el prompt propio de la app que `sudo` a todo):
+In Raspberry Pi Imager (with elevated permissions if it asks; the app's own prompt is better than running everything with `sudo`):
 
-- Hostname (aquí: `raspberrio`), usuario (`jorge`) y contraseña.
-- WiFi: el **hotspot del teléfono** (SSID, contraseña y **país del WiFi**; sin país, la radio puede quedar deshabilitada).
-- **Habilitar SSH.**
-- Verificar dos veces el dispositivo de destino antes de escribir (para no borrar el disco equivocado).
+- Hostname (here: `raspberrio`), user (`jorge`) and password.
+- WiFi: the **phone hotspot** (SSID, password and **WiFi country**; without a country, the radio may stay disabled).
+- **Enable SSH.**
+- Double-check the target device before writing (so you don't wipe the wrong disk).
 
-> En Arch también existe `sudo pacman -S rpi-imager`. El AppImage requiere `chmod +x` y a veces `fuse2`.
+> On Arch there is also `sudo pacman -S rpi-imager`. The AppImage needs `chmod +x` and sometimes `fuse2`.
 
-### Paso 1: Encontrar la IP de la Pi en el hotspot
+### Step 1: Find the Pi's IP on the hotspot
 
-- Revisar la lista de dispositivos conectados en el teléfono, o
-- Escanear: `nmap -sn 10.53.109.0/24` (usar la subred de tu laptop; se ve con `ip -4 addr`).
-- Confirmar con `ping -c 3 IP` y `ip neigh`. La MAC de una Pi empieza con `2c:cf:67` (o similar de Raspberry Pi Trading).
+- Check the list of connected devices on the phone, or
+- Scan: `nmap -sn 10.53.109.0/24` (use your laptop's subnet; see it with `ip -4 addr`).
+- Confirm with `ping -c 3 IP` and `ip neigh`. A Pi's MAC address starts with `2c:cf:67` (or a similar Raspberry Pi Trading prefix).
 
-**Errores que ocurrieron:**
+**Errors we ran into:**
 
-| Intento | Problema |
+| Attempt | Problem |
 |---|---|
-| `ssh jorge@hostname.localhost` | `.localhost` apunta a tu propia laptop. Debe ser `.local` (o usar la IP). |
-| `ssh jorge@raspberrio.10.53.109.82` | Mezcla hostname + IP. Se usa uno u otro. |
-| `No route to host` | Fue momentáneo (ARP sin resolver, la Pi aún terminaba de arrancar). Reintentar funcionó. |
+| `ssh jorge@hostname.localhost` | `.localhost` points to your own laptop. It must be `.local` (or use the IP). |
+| `ssh jorge@raspberrio.10.53.109.82` | Mixes hostname and IP. Use one or the other. |
+| `No route to host` | It was temporary (ARP not resolved yet, the Pi was still booting). Retrying worked. |
 
-### Paso 2: Conectar por SSH
+### Step 2: Connect over SSH
 
 ```bash
 ssh jorge@10.53.109.82
 ```
 
-### Paso 3: Instalar Tailscale en la Pi (estando en el hotspot)
+### Step 3: Install Tailscale on the Pi (while on the hotspot)
 
 ```bash
 curl -fsSL https://tailscale.com/install.sh | sh
 sudo tailscale up
 ```
 
-Abrir el enlace que imprime y autenticarse. Luego:
+Open the link it prints and log in. Then:
 
 ```bash
-tailscale ip -4      # IP de Tailscale de la Pi
+tailscale ip -4      # the Pi's Tailscale IP
 ```
 
-En la Pi, el servicio debe estar habilitado para arrancar solo:
+On the Pi, the service must be enabled to start on boot:
 
 ```bash
-systemctl is-enabled tailscaled     # debe decir "enabled"
+systemctl is-enabled tailscaled     # must print "enabled"
 ```
 
-### Paso 4: Instalar Tailscale en la laptop (Arch)
+### Step 4: Install Tailscale on the laptop (Arch)
 
 ```bash
 sudo pacman -S tailscale
-sudo systemctl start tailscaled     # o "enable --now" para que arranque siempre
-sudo tailscale up                   # misma cuenta que la Pi
-tailscale status                    # debe listar la Pi
+sudo systemctl start tailscaled     # or "enable --now" to always start it
+sudo tailscale up                   # same account as the Pi
+tailscale status                    # must list the Pi
 ```
 
-- `enable --now` = arranca ahora **y** en cada inicio.
-- `start` = solo esta sesión.
-- Que `tailscaled` corra no significa que estés conectado: eso lo controlan `tailscale up` / `tailscale down`.
+- `enable --now` = start now **and** on every boot.
+- `start` = this session only.
+- `tailscaled` running does not mean you are connected: that is controlled by `tailscale up` / `tailscale down`.
 
-Parar y desactivar:
+Stop and disable:
 
 ```bash
 sudo tailscale down
 sudo systemctl disable --now tailscaled
 ```
 
-### Paso 5: Crear el perfil de WiFi empresarial (script)
+### Step 5: Create the enterprise WiFi profile (script)
 
-Guardar en la Pi como `wifi.sh`:
+Save it on the Pi as `wifi.sh`:
 
 ```bash
 #!/bin/bash
 set -e
 
+CON_NAME="Tec-wifi"
 SSID="Tec"
-USER_ID='tu_usuario'
-PASS='tu_contraseña'
+USER_ID='your_username'
+PASS='your_password'
 
-# Borra el perfil si ya existe (evita duplicados)
-sudo nmcli connection delete "corp-wifi" 2>/dev/null || true
+# Delete the profile if it already exists (avoids duplicates)
+sudo nmcli connection delete "$CON_NAME" 2>/dev/null || true
 
-sudo nmcli connection add type wifi con-name "corp-wifi" ifname wlan0 ssid "$SSID" \
+sudo nmcli connection add type wifi con-name "$CON_NAME" ifname wlan0 ssid "$SSID" \
   wifi-sec.key-mgmt wpa-eap \
   802-1x.eap peap \
   802-1x.anonymous-identity "Tec" \
@@ -166,63 +167,63 @@ sudo nmcli connection add type wifi con-name "corp-wifi" ifname wlan0 ssid "$SSI
   connection.autoconnect yes \
   connection.autoconnect-priority 10
 
-echo "Perfil añadido. Aún no se ha activado, así que tu sesión SSH sigue viva."
+echo "Profile added. It is not active yet, so your SSH session is still alive."
 ```
 
-Ejecutar:
+Run it:
 
 ```bash
 chmod 700 wifi.sh
 ./wifi.sh
 ```
 
-Notas:
+Notes:
 
-- `USER_ID` es el usuario **de la red WiFi** (matrícula o correo institucional), **no** `jorge`.
-- Las comillas simples en `PASS` evitan que `$`, `"`, `` ` `` o `\` se interpreten. Una comilla simple dentro se escribe `'\''`.
-- No se usan `ca-cert` ni `domain-suffix-match`, porque la red no pide certificado.
-- El nombre del perfil es el de `con-name`. En esta Pi quedó como **`Tec-wifi`**; usar siempre el nombre que muestre `nmcli connection show`.
-- Este script **no corta el SSH**, porque solo guarda el perfil.
+- `USER_ID` is the **WiFi network** user (student ID or institutional email), **not** `jorge`.
+- Single quotes around `PASS` keep `$`, `"`, `` ` `` and `\` from being interpreted. A single quote inside is written as `'\''`.
+- `ca-cert` and `domain-suffix-match` are not used, because the network does not require a certificate.
+- The profile name is the one given in `con-name` (`Tec-wifi` on this Pi). Always use the name shown by `nmcli connection show`.
+- This script **does not cut SSH**, because it only saves the profile.
 
-Verificar:
+Verify:
 
 ```bash
 nmcli connection show Tec-wifi | grep -E "802-1x.(eap|identity|anonymous)"
 ```
 
-### Paso 6: Cambiar de red con temporizador de seguridad
+### Step 6: Switch networks with a safety timer
 
-La primera vez conviene probar con regreso automático al hotspot:
+The first time, it is worth testing with an automatic return to the hotspot:
 
 ```bash
 sudo nohup sh -c 'nmcli connection up Tec-wifi; sleep 120; nmcli connection up "netplan-wlan0-Galaxy S26 Ultra 7FE1"' >/dev/null 2>&1 &
 ```
 
-Detalles:
+Details:
 
-- Las comillas dobles van **alrededor del nombre completo** del perfil (tiene espacios). Un error inicial fue escribir `Galaxy "S26 Ultra 7FE1"`, que parte el nombre en dos argumentos.
-- La sesión SSH se congela. Es normal: la Pi dejó el hotspot.
-- Para cancelar el regreso antes de los 120 s (si aún tienes acceso): `sudo pkill -f "sleep 120"`.
-- Si apagas el hotspot, el comando de regreso falla y la Pi **se queda en `Tec`**, que es lo deseado.
+- The double quotes go **around the full profile name** (it has spaces). An early mistake was writing `Galaxy "S26 Ultra 7FE1"`, which splits the name into two arguments.
+- The SSH session freezes. That is expected: the Pi left the hotspot.
+- To cancel the return before the 120 s are up (if you still have access): `sudo pkill -f "sleep 120"`.
+- If you turn off the hotspot, the return command fails and the Pi **stays on `Tec`**, which is what we want.
 
-### Paso 7: Cerrar la sesión SSH congelada
+### Step 7: Close the frozen SSH session
 
-La conexión TCP murió pero la laptop no lo sabe. `Ctrl+D` no sirve. Usar la secuencia de escape de SSH:
+The TCP connection died but the laptop doesn't know it. `Ctrl+D` does not work. Use the SSH escape sequence:
 
 1. `Enter`
 2. `~`
 3. `.`
 
-O, en tmux: `Ctrl+B` luego `x` para cerrar el pane.
+Or, in tmux: `Ctrl+B` then `x` to close the pane.
 
-### Paso 8: Verificar desde la Pi (o por Tailscale)
+### Step 8: Verify from the Pi (or over Tailscale)
 
 ```bash
 hostname -I
 nmcli connection show --active
 ```
 
-Resultado obtenido:
+Result we got:
 
 ```
 10.43.50.144 100.74.216.50 fd7a:115c:a1e0::1c49:d833
@@ -232,95 +233,95 @@ tailscale0  ...  tun       tailscale0
 lo          ...  loopback  lo
 ```
 
-- `10.43.50.144` → IP de la red empresarial (en `wlan0`).
-- `100.74.216.50` → IP de Tailscale de la Pi (fija).
-- `fd7a:...` → IPv6 de Tailscale (ignorar).
+- `10.43.50.144` → IP on the enterprise network (on `wlan0`).
+- `100.74.216.50` → the Pi's Tailscale IP (fixed).
+- `fd7a:...` → Tailscale IPv6 (ignore).
 
-### Paso 9: Entrar desde la laptop por Tailscale
+### Step 9: Log in from the laptop over Tailscale
 
 ```bash
 ssh jorge@100.74.216.50
 ```
 
-La laptop puede estar en **cualquier red** con internet, siempre que Tailscale esté activo.
+The laptop can be on **any network** with internet, as long as Tailscale is up.
 
-### Paso 10: Dejarlo permanente
+### Step 10: Make it permanent
 
 ```bash
 sudo nmcli connection modify Tec-wifi connection.autoconnect yes connection.autoconnect-priority 10
 systemctl is-enabled tailscaled
 ```
 
-Tras cada reinicio, la Pi se conectará a `Tec` y será accesible en `100.74.216.50`.
+After every reboot, the Pi will connect to `Tec` and be reachable at `100.74.216.50`.
 
 ---
 
-## 5. Cómo funciona el fallback (si `Tec` falla)
+## 5. How the fallback works (if `Tec` fails)
 
-- **Falla la autenticación o la red está fuera de alcance:** NetworkManager marca el perfil como fallido y vuelve al siguiente disponible (el hotspot). Entrar de nuevo con `ssh jorge@10.53.109.82` (con el hotspot encendido).
-- **Conecta pero no sirve** (portal cautivo, MAC sin registrar, aislamiento de clientes): NM lo considera exitoso y **no regresa**. Ahí Tailscale es el seguro, siempre que la red tenga salida a internet.
-- **Último recurso:** monitor y teclado en la Pi, o editar la configuración en la SD desde la laptop.
+- **Authentication fails or the network is out of range:** NetworkManager marks the profile as failed and falls back to the next available one (the hotspot). Log in again with `ssh jorge@10.53.109.82` (with the hotspot on).
+- **It connects but doesn't work** (captive portal, unregistered MAC, client isolation): NM considers it successful and **does not fall back**. Tailscale is the safety net here, as long as the network has internet access.
+- **Last resort:** monitor and keyboard on the Pi, or edit the configuration on the SD card from the laptop.
 
-Para probar sin riesgo de que un reinicio te mande a `Tec` por sorpresa, crear el perfil con `autoconnect no` y activarlo solo cuando esté confirmado.
+To test without the risk of a reboot sending you to `Tec` by surprise, create the profile with `autoconnect no` and only enable it once it is confirmed.
 
 ---
 
-## 6. Diagnóstico rápido
+## 6. Quick diagnosis
 
-| Síntoma | Qué revisar |
+| Symptom | What to check |
 |---|---|
-| `Connection refused` | Hay respuesta pero SSH no está habilitado, o hostname/IP equivocados (`.localhost`). |
-| `No route to host` | ARP sin respuesta: Pi aún arrancando, IP incorrecta, otra subred o aislamiento de clientes. |
-| La Pi aparece en el teléfono pero no responde | "Aislar clientes" en el hotspot; probar banda 2.4 GHz. |
-| `.local` no resuelve en Arch | Instalar `avahi` y `nss-mdns`, habilitar `avahi-daemon` y editar `hosts:` en `/etc/nsswitch.conf`. O usar la IP. |
-| No sabes la IP nueva de la Pi | Usar Tailscale (`tailscale status` en la laptop) o `hostname -I` en la Pi. |
-| Falla la autenticación en `Tec` | Revisar logs: `journalctl -u NetworkManager --since "15 minutes ago" \| grep -iE "tec\|auth\|fail\|activated"` |
-| Tailscale no conecta en la red empresarial | La red puede bloquear salida a internet o el tráfico de Tailscale. |
-| Perfil no encontrado | Nombre exacto con `nmcli connection show`. |
+| `Connection refused` | Something answers, but SSH is not enabled, or the hostname/IP is wrong (`.localhost`). |
+| `No route to host` | No ARP reply: the Pi is still booting, wrong IP, different subnet or client isolation. |
+| The Pi shows up on the phone but doesn't respond | "Isolate clients" on the hotspot; try the 2.4 GHz band. |
+| `.local` doesn't resolve on Arch | Install `avahi` and `nss-mdns`, enable `avahi-daemon` and edit `hosts:` in `/etc/nsswitch.conf`. Or use the IP. |
+| You don't know the Pi's new IP | Use Tailscale (`tailscale status` on the laptop) or `hostname -I` on the Pi. |
+| Authentication on `Tec` fails | Check the logs: `journalctl -u NetworkManager --since "15 minutes ago" \| grep -iE "tec\|auth\|fail\|activated"` |
+| Tailscale doesn't connect on the enterprise network | The network may block internet access or Tailscale traffic. |
+| Profile not found | Exact name with `nmcli connection show`. |
 
-Comandos útiles:
+Useful commands:
 
 ```bash
-nmcli connection show                 # todos los perfiles
-nmcli connection show --active        # perfiles activos
-nmcli device status                   # estado de las interfaces
-ip -4 addr show wlan0                 # IP actual
-tailscale status                      # dispositivos de Tailscale
+nmcli connection show                 # all profiles
+nmcli connection show --active        # active profiles
+nmcli device status                   # interface status
+ip -4 addr show wlan0                 # current IP
+tailscale status                      # Tailscale devices
 ```
 
 ---
 
-## 7. Seguridad
+## 7. Security
 
-- `nmcli` guarda la contraseña en **texto plano** en `/etc/NetworkManager/system-connections/` (solo root puede leerla).
-- Si dejas la contraseña en `wifi.sh`, protégelo con `chmod 700` y **bórralo o limpia la contraseña** al terminar. No lo subas a GitHub.
-- Pasar la contraseña como argumento (`./script.sh 'pass'`) la deja en el historial de la shell.
-- No añadas tu usuario al grupo `disk` como solución permanente: da acceso a los discos casi como root.
-- Sin certificado CA, la Pi no verifica la identidad del servidor de la red. Es lo que la red del Tec indica, pero implica menos protección contra redes falsas.
+- `nmcli` stores the password in **plain text** in `/etc/NetworkManager/system-connections/` (only root can read it).
+- If you leave the password in `wifi.sh`, protect it with `chmod 700` and **delete it or clear the password** when you are done. Don't push it to GitHub.
+- Passing the password as an argument (`./script.sh 'pass'`) leaves it in the shell history.
+- Don't add your user to the `disk` group as a permanent fix: it gives near-root access to the disks.
+- Without a CA certificate, the Pi does not verify the network server's identity. That is what the Tec network instructs, but it means less protection against rogue networks.
 
 ---
 
-## 8. Resumen de datos de esta instalación
+## 8. Summary of this installation
 
-| Elemento | Valor |
+| Item | Value |
 |---|---|
 | Laptop | `envy` (Arch Linux) |
-| Pi | hostname `raspberrio`, usuario `jorge` |
-| Perfil del hotspot | `netplan-wlan0-Galaxy S26 Ultra 7FE1` |
-| Perfil empresarial | `Tec-wifi` |
-| IP en hotspot | `10.53.109.82` |
-| IP en `Tec` | `10.43.50.144` (puede cambiar) |
-| IP de Tailscale | `100.74.216.50` (fija) |
-| Entrar a la Pi | `ssh jorge@100.74.216.50` |
+| Pi | hostname `raspberrio`, user `jorge` |
+| Hotspot profile | `netplan-wlan0-Galaxy S26 Ultra 7FE1` |
+| Enterprise profile | `Tec-wifi` |
+| IP on hotspot | `10.53.109.82` |
+| IP on `Tec` | `10.43.50.144` (may change) |
+| Tailscale IP | `100.74.216.50` (fixed) |
+| Log in to the Pi | `ssh jorge@100.74.216.50` |
 
 ---
 
-## 9. Receta corta (para repetir en otra Pi)
+## 9. Short recipe (to repeat on another Pi)
 
-1. Flashear con Imager (WiFi del hotspot, SSH activado, país configurado).
-2. `ssh usuario@IP_hotspot`
-3. Instalar Tailscale en la Pi y en la laptop; verificar con `tailscale status`.
-4. Correr el script de `nmcli` con el SSID, usuario y contraseña.
-5. Activar con el temporizador de seguridad (o `sudo reboot`).
-6. Reconectar con `ssh usuario@IP_tailscale`.
-7. Dejar `autoconnect yes` y borrar la contraseña del script.
+1. Flash with Imager (hotspot WiFi, SSH enabled, country set).
+2. `ssh user@hotspot_IP`
+3. Install Tailscale on the Pi and on the laptop; check with `tailscale status`.
+4. Run the `nmcli` script with the SSID, user and password.
+5. Activate it with the safety timer (or `sudo reboot`).
+6. Reconnect with `ssh user@tailscale_IP`.
+7. Leave `autoconnect yes` and delete the password from the script.

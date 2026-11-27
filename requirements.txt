@@ -1,0 +1,9 @@
+# Runtime dependencies (Raspberry Pi and laptop).
+# Install the CPU build of PyTorch first, or ARM gets GBs of useless CUDA packages:
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+# If ultralytics pulls in opencv-python and you get libGL errors on the Pi:
+#   pip uninstall -y opencv-python && pip install --force-reinstall opencv-python-headless
+ultralytics>=8.3
+lap>=0.5.12  # needed by the ByteTrack tracker
+opencv-python-headless>=4.8
+psycopg[binary]>=3.1  # only for --db (lab-monitor PostgreSQL database)

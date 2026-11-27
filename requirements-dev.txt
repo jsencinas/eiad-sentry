@@ -1,0 +1,2 @@
+# Tests only need pytest: they do not use a camera, OpenCV or a model.
+pytest>=8
