@@ -14,6 +14,11 @@
 // - WiFi reconnects by itself; the board restarts if WiFi or the camera
 //   stays down.
 //
+// Orientation: the camera is mounted turned 90 degrees, and the Pi straightens
+// it (ppe_detector.py --rotate 270, about 1 ms per frame). Do not rotate here:
+// rotating on the ESP32 means raw RGB565 frames and software JPEG, which cut
+// the stream to ~3 fps at 320x240 instead of hardware JPEG at 640x480.
+//
 // WiFi credentials live in src/secrets.h (git-ignored): copy
 // src/secrets.example.h. Never put them in this file: the repo is public.
 
