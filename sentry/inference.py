@@ -23,10 +23,38 @@ class FrameResult:
     inference_ms: float = 0.0
 
 
+def use_litert_for_edgetpu() -> None:
+    """Let Ultralytics run Coral Edge TPU models with Google's ai-edge-litert.
+
+    Ultralytics loads `*_edgetpu.tflite` models through `tflite_runtime`, which
+    has no build for current Python versions (3.13 on Raspberry Pi OS 13).
+    `ai_edge_litert.interpreter` provides the same Interpreter and
+    load_delegate, so it is registered under the old name when needed.
+    """
+    import importlib.util
+    import sys
+
+    if importlib.util.find_spec("tflite_runtime") is not None:
+        return
+    try:
+        from ai_edge_litert import interpreter
+    except ImportError:
+        raise SystemExit(
+            "Coral Edge TPU models need: pip install ai-edge-litert (and the libedgetpu runtime)"
+        ) from None
+    package = type(sys)("tflite_runtime")
+    package.interpreter = interpreter
+    sys.modules.setdefault("tflite_runtime", package)
+    sys.modules.setdefault("tflite_runtime.interpreter", interpreter)
+
+
 def load_model(path: str):
     """Load a YOLO model (Ultralytics downloads official weights the first time)."""
     from ultralytics import YOLO  # imported lazily: tests never need it
 
+    if str(path).endswith("_edgetpu.tflite"):
+        use_litert_for_edgetpu()
+        return YOLO(path, task="detect")
     return YOLO(path)
 
 
