@@ -8,9 +8,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lab-monitor"))
 from epp import estado_epp  # noqa: E402
 
 
-def fila(personas=1, sin_lentes=0, sin_bata=0, estado="CONFIRMADA"):
-    return {"cantidad_personas": personas, "sin_lentes": sin_lentes,
-            "sin_bata": sin_bata, "deteccion_estado": estado}
+def fila(personas=1, sin_lentes=0, sin_bata=0, estado="CONFIRMADA", sin_credencial=0):
+    return {"cantidad_personas": personas, "sin_lentes": sin_lentes, "sin_bata": sin_bata,
+            "sin_credencial": sin_credencial, "deteccion_estado": estado}
 
 
 @pytest.mark.parametrize(
@@ -38,3 +38,12 @@ def test_details_come_with_the_text():
         "texto": "Falta: bata", "estado": "FALTA", "personas": 3,
         "falta_lentes": False, "falta_bata": True,
     }
+
+
+def test_someone_without_credential_is_asked_for_it():
+    assert estado_epp(fila(sin_credencial=1))["texto"] == "Muestre su credencial"
+    assert estado_epp(fila(sin_credencial=1))["estado"] == "SIN_CREDENCIAL"
+
+
+def test_a_missing_item_wins_over_a_missing_credential():
+    assert estado_epp(fila(personas=2, sin_bata=1, sin_credencial=1))["texto"] == "Falta: bata"
