@@ -109,7 +109,8 @@ def run(args) -> None:
         except ValueError as e:
             raise SystemExit(f"Error: {e}") from None
         db = DatabaseWriter(args.db, item_map).start()
-        print(f"[db] Writing to {args.db} ({', '.join(f'{k} as {v}' for k, v in item_map.items())})")
+        stands_for = ", ".join(f"{item} as {'+'.join(targets)}" for item, targets in item_map.items())
+        print(f"[db] Writing to {args.db} ({stands_for})")
     elif args.db_map:
         raise SystemExit("--db-map needs --db")
 
