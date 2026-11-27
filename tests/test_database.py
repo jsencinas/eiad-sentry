@@ -10,7 +10,7 @@ from sentry.database import (
 )
 from sentry.smoothing import PersonResult, Verdict
 
-BOTH = {"glasses": "glasses", "coat": "coat"}
+BOTH = {"glasses": ("glasses",), "coat": ("coat",)}
 
 
 def person(track_id, verdict, missing=()):
@@ -25,7 +25,11 @@ def test_real_items_map_to_themselves():
 
 
 def test_demo_item_is_mapped_explicitly():
-    assert parse_db_map("cell phone=glasses", ["cell phone"]) == {"cell phone": "glasses"}
+    assert parse_db_map("cell phone=glasses", ["cell phone"]) == {"cell phone": ("glasses",)}
+
+
+def test_one_demo_item_can_stand_for_glasses_and_coat():
+    assert parse_db_map("cell phone=glasses+coat", ["cell phone"]) == {"cell phone": ("glasses", "coat")}
 
 
 def test_unmapped_demo_item_fails_with_an_example():
@@ -37,6 +41,7 @@ def test_unmapped_demo_item_fails_with_an_example():
     "text, message",
     [
         ("cell phone=boots", "not one of"),
+        ("cell phone=glasses+boots", "not one of"),
         ("cup=glasses", "not a required item"),
         ("cell phone", "should look like"),
     ],
@@ -87,7 +92,14 @@ def test_incident_says_what_is_missing():
 
 
 def test_demo_item_is_recorded_as_its_database_item():
-    assert incident_params(3, ["cell phone"], {"cell phone": "glasses"}, None) == (3, True, False, None)
+    assert incident_params(3, ["cell phone"], {"cell phone": ("glasses",)}, None) == (3, True, False, None)
+
+
+def test_without_the_demo_item_both_are_missing():
+    phone_is_both = {"cell phone": ("glasses", "coat")}
+    assert incident_params(3, ["cell phone"], phone_is_both, None) == (3, True, True, None)
+    results = {1: person(1, Verdict.MISSING, ["cell phone"]), 2: person(2, Verdict.OK)}
+    assert live_state(results, phone_is_both) == LiveState(2, 1, 1, False, "CONFIRMADA")
 
 
 # --- writer ---------------------------------------------------------------
@@ -177,7 +189,7 @@ def test_no_frames_means_no_signal():
 
 
 def test_incidents_are_inserted_with_what_is_missing():
-    writer, db, _, _ = make_writer({"cell phone": "glasses"})
+    writer, db, _, _ = make_writer({"cell phone": ("glasses",)})
     writer.incident(4, ["cell phone"], "/out/x.jpg")
     writer.step()
     assert ("incidencias", (4, True, False, "/out/x.jpg")) in db.writes
