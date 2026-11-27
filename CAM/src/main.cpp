@@ -23,7 +23,12 @@
 #include <ESPmDNS.h>
 #include "esp_camera.h"
 #include "esp_http_server.h"
+#include <atomic>
+#if ESP_ARDUINO_VERSION_MAJOR >= 3
+#include "esp_eap_client.h"
+#else
 #include "esp_wpa2.h"
+#endif
 #include "soc/soc.h"
 #include "soc/rtc_cntl_reg.h"
 
@@ -49,10 +54,10 @@ static const char *STREAM_PART = "Content-Type: image/jpeg\r\nContent-Length: %u
 static httpd_handle_t streamServer = nullptr;
 
 // Written by the HTTP server task, read by loop() for the stats line.
-static volatile uint32_t framesSent = 0;
-static volatile uint32_t bytesSent = 0;
-static volatile uint8_t captureFailures = 0;
-static volatile bool clientStreaming = false;
+static std::atomic<uint32_t> framesSent{0};
+static std::atomic<uint32_t> bytesSent{0};
+static std::atomic<uint8_t> captureFailures{0};
+static std::atomic<bool> clientStreaming{false};
 
 bool initCamera() {
   camera_config_t config = {};
@@ -287,9 +292,7 @@ void loop() {
 
   uint32_t now = millis();
   if (now - lastStats >= STATS_INTERVAL_MS) {
-    uint32_t frames = framesSent, bytes = bytesSent;
-    framesSent = 0;
-    bytesSent = 0;
+    uint32_t frames = framesSent.exchange(0), bytes = bytesSent.exchange(0);
     float secs = (now - lastStats) / 1000.0f;
     if (clientStreaming || frames) {
       Serial.printf("%.1f fps sent, %u KB per frame, %u KB/s, signal %d dBm\n", frames / secs,
