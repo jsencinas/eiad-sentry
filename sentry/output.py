@@ -6,7 +6,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Mapping, Sequence
+from typing import Callable, Collection, Mapping, Sequence
 
 import cv2
 
@@ -33,12 +33,21 @@ def _label(img, text: str, x: int, y: int, color) -> None:
     cv2.putText(img, text, (x + 2, y - base), font, scale, (255, 255, 255), thick, cv2.LINE_AA)
 
 
-def person_text(result: PersonResult | None, track_id: int) -> str:
+WAITING_TEXT = "Muestre su credencial"
+
+
+def person_text(
+    result: PersonResult | None, track_id: int, name: str | None = None, waiting: bool = False
+) -> str:
+    """Label for a person: "#3 A01234567 OK", "#3 MISSING: coat", "#3 Muestre su credencial"."""
+    who = f"#{track_id} {name}" if name else f"#{track_id}"
+    if waiting:
+        return f"{who} {WAITING_TEXT}"
     if result is None:
-        return f"#{track_id}"
+        return who
     if result.verdict is Verdict.MISSING:
-        return f"#{track_id} MISSING: {', '.join(result.missing)}"
-    return f"#{track_id} {result.verdict.value}"
+        return f"{who} MISSING: {', '.join(result.missing)}"
+    return f"{who} {result.verdict.value}"
 
 
 def annotate(
@@ -48,8 +57,15 @@ def annotate(
     results: Mapping[int, PersonResult],
     owners: Mapping[Detection, int | None],
     header: str = "",
+    waiting: Collection[int] = (),
+    names: Mapping[int, str] | None = None,
 ):
-    """Return a copy of `frame` with people, PPE and verdicts drawn on it."""
+    """Return a copy of `frame` with people, PPE and verdicts drawn on it.
+
+    People in `waiting` still have to show their credential; `names` maps
+    identified people to their matrícula.
+    """
+    names = names or {}
     img = frame.copy()
     for det in ppe:
         b = det.box
@@ -58,10 +74,15 @@ def annotate(
         _label(img, f"{det.label} {det.conf:.2f}", int(b.x1), int(b.y1), color)
     for p in persons:
         result = results.get(p.track_id)
-        color = COLORS[result.verdict] if result else COLORS[Verdict.PENDING]
+        is_waiting = p.track_id in waiting
+        if is_waiting:
+            color = COLORS[Verdict.UNVERIFIABLE]
+        else:
+            color = COLORS[result.verdict] if result else COLORS[Verdict.PENDING]
         b = p.box
         cv2.rectangle(img, (int(b.x1), int(b.y1)), (int(b.x2), int(b.y2)), color, 2)
-        _label(img, person_text(result, p.track_id), int(b.x1), int(b.y1), color)
+        text = person_text(result, p.track_id, names.get(p.track_id), is_waiting)
+        _label(img, text, int(b.x1), int(b.y1), color)
     if header:
         _label(img, header, 0, img.shape[0], (40, 40, 40))
     return img

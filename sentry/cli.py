@@ -48,6 +48,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--web-host", help="address for the web viewer (default: Tailscale IP, else 127.0.0.1)")
     p.add_argument("--web-port", type=int, default=8082, help="port for the web viewer (default: 8082)")
     p.add_argument(
+        "--credential",
+        action="store_true",
+        help="identify each person by the matrícula on their Tec credential (OCR) before "
+        "checking their PPE; with --db, record their entry and exit",
+    )
+    p.add_argument(
         "--db",
         metavar="DSN",
         help="write alerts and the live state to the lab-monitor PostgreSQL database, "
@@ -79,14 +85,39 @@ def setup_demo(args):
     return detector, required, CenterInBoxRule()
 
 
-def status_payload(results, stats_line: str) -> dict:
+def status_payload(results, stats_line: str, waiting=(), names=None) -> dict:
+    names = names or {}
     return {
         "stats": stats_line,
         "people": [
-            {"id": tid, "verdict": r.verdict.value, "missing": list(r.missing)}
+            {
+                "id": tid,
+                "verdict": "SIN_CREDENCIAL" if tid in waiting else r.verdict.value,
+                "missing": [] if tid in waiting else list(r.missing),
+                "matricula": names.get(tid),
+            }
             for tid, r in sorted(results.items())
         ],
     }
+
+
+def update_identities(identities, credential_reader, smoother, results, found, frame, db) -> list[int]:
+    """Feed OCR reads, report arrivals and departures; return who still has to show a credential."""
+    from sentry.credentials import assign_reads
+
+    for reads, persons in credential_reader.results():
+        for track_id, matricula in identities.add_reads(assign_reads(reads, persons)).items():
+            print(f"[credential] #{track_id} identified as {matricula}")
+            if db is not None:
+                db.identified(track_id, matricula)
+    for track_id, matricula in identities.forget_missing(smoother.tracked_ids).items():
+        print(f"[credential] #{track_id} ({matricula}) left")
+        if db is not None:
+            db.departed(track_id)
+    waiting = identities.needs_credential(results)
+    if waiting and credential_reader.due():
+        credential_reader.submit(frame.copy(), found.persons)
+    return waiting
 
 
 def run(args) -> None:
@@ -108,7 +139,7 @@ def run(args) -> None:
             item_map = parse_db_map(args.db_map, required)
         except ValueError as e:
             raise SystemExit(f"Error: {e}") from None
-        db = DatabaseWriter(args.db, item_map).start()
+        db = DatabaseWriter(args.db, item_map, credentials=args.credential).start()
         stands_for = ", ".join(f"{item} as {'+'.join(targets)}" for item, targets in item_map.items())
         print(f"[db] Writing to {args.db} ({stands_for})")
     elif args.db_map:
@@ -119,6 +150,15 @@ def run(args) -> None:
         if db is not None:
             db.incident(track_id, missing, photo.resolve() if photo else None)
         return photo
+
+    identities = credential_reader = None
+    if args.credential:
+        from sentry.credentials import IdentityTracker
+        from sentry.ocr import CredentialReader
+
+        identities = IdentityTracker()
+        credential_reader = CredentialReader().start()
+        print("[credential] Each person must show their credential before their PPE is checked")
 
     smoother = Smoother(required, window=args.window, min_samples=args.min_samples)
     alerts = AlertDispatcher(Cooldown(args.cooldown), args.save_dir, hook=violation)
@@ -156,17 +196,24 @@ def run(args) -> None:
             observations = assign_ppe(found.persons, found.ppe, required, rule, frame.shape[0])
             results = smoother.update(observations)
             stats.update(found.inference_ms, results)
-            if db is not None:
-                db.live(results)
 
+            waiting: list[int] = []
+            if identities is not None:
+                waiting = update_identities(identities, credential_reader, smoother, results, found, frame, db)
+            if db is not None:
+                db.live(results, unidentified=waiting)
+
+            names = identities.identities if identities is not None else {}
             annotated = annotate(
                 frame, found.persons, found.ppe, results,
                 owners(found.persons, found.ppe, rule),
                 header=f"{found.inference_ms:.0f} ms",
+                waiting=waiting, names=names,
             )
-            alerts(results, annotated)
+            # PPE is only judged once the person is identified.
+            alerts({t: r for t, r in results.items() if t not in waiting}, annotated)
             if hub is not None:
-                hub.publish(annotated, status_payload(results, stats.last_line))
+                hub.publish(annotated, status_payload(results, stats.last_line, waiting, names))
             if args.show:
                 try:
                     cv2.imshow("Sentry", annotated)
@@ -181,6 +228,8 @@ def run(args) -> None:
     finally:
         print("[sentry] Stopping")
         reader.stop()
+        if credential_reader is not None:
+            credential_reader.stop()
         if db is not None:
             db.close()
         if viewer is not None:
