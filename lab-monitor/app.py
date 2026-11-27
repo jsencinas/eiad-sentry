@@ -3,7 +3,9 @@ from pathlib import Path
 
 import psycopg
 from psycopg.rows import dict_row
-from flask import Flask, jsonify, request, send_file, send_from_directory
+from flask import Flask, Response, jsonify, request, send_file, send_from_directory
+
+from epp import estado_epp
 
 # Ejemplo: export DATABASE_URL="postgresql://localhost/lab_monitor"
 DATABASE_URL = os.environ["DATABASE_URL"]
@@ -149,6 +151,25 @@ def foto_incidencia(incidencia_id):
     if not ruta.is_relative_to(FOTOS_DIR) or not ruta.is_file():
         return jsonify(error="Foto no disponible"), 404
     return send_file(ruta, mimetype="image/jpeg")
+
+
+
+@app.get("/api/epp")
+def epp():
+    """What the people in front of the camera lack, read from the database.
+
+    JSON by default; ?formato=texto returns only the text ("OK",
+    "Falta: lentes de seguridad", ...), handy for an ESP32 or a display.
+    """
+    fila = consulta("""
+        SELECT cantidad_personas, sin_lentes, sin_bata, deteccion_estado
+        FROM public.estado_laboratorio
+        WHERE id = 1
+    """, uno=True)
+    datos = estado_epp(fila)
+    if request.args.get("formato") == "texto":
+        return Response(datos["texto"], mimetype="text/plain; charset=utf-8")
+    return jsonify(datos)
 
 
 if __name__ == "__main__":
