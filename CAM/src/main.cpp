@@ -38,6 +38,11 @@
 #error "Copy src/secrets.example.h to src/secrets.h and fill in the WiFi credentials"
 #endif
 
+// The Tec network is WPA2-Enterprise (PEAP): all four values are required.
+#if !defined(WIFI_SSID) || !defined(EAP_IDENTITY) || !defined(EAP_USERNAME) || !defined(EAP_PASSWORD)
+#error "secrets.h must define WIFI_SSID, EAP_IDENTITY, EAP_USERNAME and EAP_PASSWORD (WPA2-Enterprise)"
+#endif
+
 static const char *HOSTNAME = "sentry-cam";       // http://sentry-cam.local/stream
 static const int JPEG_QUALITY = 12;               // 10-63, lower = better image, bigger frames
 static const int SOFT_JPEG_QUALITY = 80;          // sensors without hardware JPEG (1-100)
@@ -155,11 +160,8 @@ static bool tryWiFiOnce() {
   WiFi.setSleep(false);  // power saving cuts the stream rate several times over
 
   Serial.printf("MAC %s, connecting to %s", WiFi.macAddress().c_str(), WIFI_SSID);
-#ifdef EAP_USERNAME
+  // WPA2-Enterprise, PEAP: anonymous identity, then the account's user name and password.
   WiFi.begin(WIFI_SSID, WPA2_AUTH_PEAP, EAP_IDENTITY, EAP_USERNAME, EAP_PASSWORD);
-#else
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-#endif
 
   uint32_t start = millis();
   while (WiFi.status() != WL_CONNECTED && millis() - start < WIFI_ATTEMPT_MS) {

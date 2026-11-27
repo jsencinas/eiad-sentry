@@ -4,9 +4,8 @@
 
 #define WIFI_SSID     "Tec"
 
-// WPA2-Enterprise (Tec): identity, user name and password of the account.
-// For a normal WPA2 network, comment out the three EAP_ lines and set:
-// #define WIFI_PASSWORD "network-password"
+// WPA2-Enterprise (PEAP): anonymous identity, then the account's user name and
+// password. All four values are required.
 #define EAP_IDENTITY  "Tec"
 #define EAP_USERNAME  "A0XXXXXXX"
 #define EAP_PASSWORD  "account-password"
