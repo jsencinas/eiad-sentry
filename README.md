@@ -19,8 +19,6 @@ ESP32-CAM (or laptop webcam) --MJPEG/WiFi--> Raspberry Pi 5: ppe_detector.py -->
 | `sentry/output.py` | Annotated frames, `on_violation` hook, console stats |
 | `sentry/web.py` | Live web viewer (MJPEG in the browser) |
 | `sentry/database.py` | Writes alerts and the live lab state to the lab-monitor PostgreSQL database |
-| `frame_ingest.py`, `sentry/ingest.py` | Receives frames pushed by the ESP32-CAM over HTTPS and re-serves them as local MJPEG |
-| `firmware/` | ESP32-CAM firmware that pushes frames to the Pi ([guide](firmware/README.md)) |
 | `CAM/` | ESP32-CAM firmware (PlatformIO) that serves the MJPEG stream on the same network: `http://CAMERA_IP/stream`. WiFi credentials go in `CAM/src/secrets.h` (git-ignored, copy `secrets.example.h`). The camera is mounted sideways, so run the detector with `--rotate 270` |
 | `tools/` | ESP32-CAM simulator for the laptop and a stream check for the Pi ([guide](tools/README.md)) |
 | `tests/` | `pytest` tests; they need no camera, model or OpenCV |
@@ -78,16 +76,15 @@ Other substitute objects: `--require bottle`, `--require cup`, `--require "cell 
 
 A stats line (analysis fps and inference time per frame) is printed every 5 s. An alert is raised at most once every `--cooldown` seconds per person.
 
-## Camera on another network
+## ESP32-CAM
 
-The ESP32-CAM and the Pi are on different networks, and the ESP32 cannot run Tailscale. So the camera pushes its frames over HTTPS to a Tailscale Funnel URL of the Pi, and `frame_ingest.py` hands them to the detector as a local stream:
+The camera and the Pi are on the same network (the Tec WiFi), and the detector reads the camera's stream directly. The firmware is in `CAM/` (flash it with PlatformIO, or open it in the Arduino IDE with **PSRAM: Enabled**). The camera is mounted sideways, so the Pi straightens the frames:
 
 ```bash
-python frame_ingest.py --token-file ~/.sentry_token          # receives the camera's frames
-python ppe_detector.py --demo --source http://127.0.0.1:8084/stream --save-dir out --web
+python ppe_detector.py --demo --source http://CAMERA_IP/stream --rotate 270 --save-dir out --web
 ```
 
-Setup, flashing and security are in the [firmware guide](firmware/README.md). `tools/push_frames.py` does the same from the laptop webcam, to test the path before flashing the camera.
+The camera's IP is printed on its serial monitor (`Stream: http://.../stream`). The Tec network assigns it dynamically; a DHCP reservation for the camera's MAC keeps it fixed.
 
 ## Live web viewer
 
