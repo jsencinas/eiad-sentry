@@ -24,11 +24,6 @@
 #include "esp_camera.h"
 #include "esp_http_server.h"
 #include <atomic>
-#if ESP_ARDUINO_VERSION_MAJOR >= 3
-#include "esp_eap_client.h"
-#else
-#include "esp_wpa2.h"
-#endif
 #include "soc/soc.h"
 #include "soc/rtc_cntl_reg.h"
 
@@ -124,28 +119,39 @@ bool initCamera() {
   return true;
 }
 
+// Why the access point dropped or refused us (802.11 reason codes).
+static const char *disconnectReason(uint8_t reason) {
+  switch (reason) {
+    case 2: return "authentication expired";
+    case 15: return "4-way handshake timeout: wrong password?";
+    case 23: return "802.1X authentication failed: wrong user name or password?";
+    case 201: return "network not found: wrong SSID or out of range";
+    case 202: return "authentication failed: wrong user name or password?";
+    case 203: return "association failed";
+    case 204: return "handshake timeout: wrong password or weak signal?";
+    default: return "";
+  }
+}
+
 void connectWiFi() {
+  WiFi.disconnect(true);  // start from a clean state, as the old firmware did
   WiFi.persistent(false);
+  WiFi.setHostname(HOSTNAME);  // before mode(), or some cores ignore it
   WiFi.mode(WIFI_STA);
-  WiFi.setHostname(HOSTNAME);
   WiFi.setSleep(false);  // power saving cuts the stream rate several times over
   WiFi.setAutoReconnect(true);
+  WiFi.onEvent([](WiFiEvent_t event, WiFiEventInfo_t info) {
+    if (event == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) {
+      uint8_t reason = info.wifi_sta_disconnected.reason;
+      Serial.printf("\nWiFi disconnected, reason %u %s\n", reason, disconnectReason(reason));
+    }
+  });
 
   Serial.printf("MAC %s, connecting to %s", WiFi.macAddress().c_str(), WIFI_SSID);
 #ifdef EAP_USERNAME
-#if ESP_ARDUINO_VERSION_MAJOR >= 3
-  esp_eap_client_set_identity((uint8_t *)EAP_IDENTITY, strlen(EAP_IDENTITY));
-  esp_eap_client_set_username((uint8_t *)EAP_USERNAME, strlen(EAP_USERNAME));
-  esp_eap_client_set_password((uint8_t *)EAP_PASSWORD, strlen(EAP_PASSWORD));
-  esp_wifi_sta_enterprise_enable();
-#else
-  esp_wifi_sta_wpa2_ent_clear_ca_cert();
-  esp_wifi_sta_wpa2_ent_set_identity((uint8_t *)EAP_IDENTITY, strlen(EAP_IDENTITY));
-  esp_wifi_sta_wpa2_ent_set_username((uint8_t *)EAP_USERNAME, strlen(EAP_USERNAME));
-  esp_wifi_sta_wpa2_ent_set_password((uint8_t *)EAP_PASSWORD, strlen(EAP_PASSWORD));
-  esp_wifi_sta_wpa2_ent_enable();
-#endif
-  WiFi.begin(WIFI_SSID);
+  // The core's own enterprise begin() sets up PEAP right before connecting;
+  // configuring EAP by hand and then calling the plain begin() is not reliable.
+  WiFi.begin(WIFI_SSID, WPA2_AUTH_PEAP, EAP_IDENTITY, EAP_USERNAME, EAP_PASSWORD);
 #else
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 #endif
