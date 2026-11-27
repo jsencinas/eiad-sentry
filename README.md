@@ -156,7 +156,7 @@ Database writes happen in a background thread: if the database is slow or down, 
 ## Arguments
 
 ```
-python ppe_detector.py --source SOURCE [--demo] [--require OBJECTS] [--model WEIGHTS]
+python ppe_detector.py --source SOURCE [--rotate 0|90|180|270] [--demo] [--require OBJECTS] [--model WEIGHTS]
     [--conf 0.4] [--imgsz 640] [--save-dir out] [--cooldown 10] [--show]
     [--web] [--web-host HOST] [--web-port 8082] [--db DSN] [--db-map ITEM=glasses|coat]
     [--window 15] [--min-samples 5] [--stats-interval 5]
@@ -165,6 +165,7 @@ python ppe_detector.py --source SOURCE [--demo] [--require OBJECTS] [--model WEI
 | Argument | Default | Meaning |
 |---|---|---|
 | `--source` | (required) | Stream URL, webcam index (`0`) or video file |
+| `--rotate` | `0` | Turn every frame clockwise by 90, 180 or 270 degrees, for a camera mounted sideways. The ESP32-CAM sensor can only flip or mirror (180°), so quarter turns are done on the Pi (about 1 ms per frame) |
 | `--demo` | off | Prototype mode with COCO and a substitute object |
 | `--require` | `backpack` | Demo: COCO object(s) standing in for PPE |
 | `--model` | demo: `yolov8n.pt` | YOLO weights |
