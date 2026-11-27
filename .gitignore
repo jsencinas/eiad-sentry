@@ -225,6 +225,7 @@ __marimo__/
 # Sentry: model weights, datasets and detector output
 *.pt
 *.onnx
+*_saved_model/
 *.engine
 *.tflite
 models/
