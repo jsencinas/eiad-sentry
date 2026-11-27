@@ -45,24 +45,28 @@ UPDATE_LIVE = """
 """
 
 
-def parse_db_map(text: str | None, required: Sequence[str]) -> dict[str, str]:
-    """Map each required detector item to "glasses" or "coat".
+def parse_db_map(text: str | None, required: Sequence[str]) -> dict[str, tuple[str, ...]]:
+    """Map each required detector item to the database items it stands for.
 
-    `text` is "item=glasses,other=coat". Items already called glasses or coat
-    map to themselves. Every required item must end up mapped.
+    `text` is "item=glasses,other=coat"; "item=glasses+coat" makes one demo
+    object stand for both (a person without it lacks glasses and coat).
+    Items already called glasses or coat map to themselves. Every required
+    item must end up mapped.
     """
-    mapping = {item: item for item in required if item in DB_ITEMS}
+    mapping = {item: (item,) for item in required if item in DB_ITEMS}
     for pair in (text or "").split(","):
         if not pair.strip():
             continue
         item, sep, target = (s.strip() for s in pair.partition("="))
         if not sep or not item or not target:
             raise ValueError(f'--db-map: "{pair.strip()}" should look like "item=glasses"')
-        if target not in DB_ITEMS:
-            raise ValueError(f'--db-map: "{target}" is not one of: {", ".join(DB_ITEMS)}')
+        targets = tuple(dict.fromkeys(t.strip() for t in target.split("+")))
+        bad = [t for t in targets if t not in DB_ITEMS]
+        if bad:
+            raise ValueError(f'--db-map: "{bad[0]}" is not one of: {", ".join(DB_ITEMS)}')
         if item not in required:
             raise ValueError(f'--db-map: "{item}" is not a required item ({", ".join(required)})')
-        mapping[item] = target
+        mapping[item] = targets
     unmapped = [i for i in required if i not in mapping]
     if unmapped:
         raise ValueError(
@@ -97,11 +101,11 @@ class LiveState:
 NO_SIGNAL = LiveState(0, 0, 0, False, "SIN_SENAL")
 
 
-def missing_db_items(missing: Sequence[str], item_map: Mapping[str, str]) -> set[str]:
-    return {item_map[i] for i in missing if i in item_map}
+def missing_db_items(missing: Sequence[str], item_map: Mapping[str, Sequence[str]]) -> set[str]:
+    return {target for i in missing if i in item_map for target in item_map[i]}
 
 
-def live_state(results: Mapping[int, PersonResult], item_map: Mapping[str, str]) -> LiveState:
+def live_state(results: Mapping[int, PersonResult], item_map: Mapping[str, Sequence[str]]) -> LiveState:
     """Summarize the people in the current frame."""
     verdicts = [r.verdict for r in results.values()]
     lacking = [missing_db_items(r.missing, item_map) for r in results.values() if r.verdict is Verdict.MISSING]
@@ -119,7 +123,7 @@ def live_state(results: Mapping[int, PersonResult], item_map: Mapping[str, str])
     )
 
 
-def incident_params(track_id: int, missing: Sequence[str], item_map: Mapping[str, str], photo) -> tuple | None:
+def incident_params(track_id: int, missing: Sequence[str], item_map: Mapping[str, Sequence[str]], photo) -> tuple | None:
     """Parameters for INSERT_INCIDENT, or None if nothing the database tracks is missing."""
     lacking = missing_db_items(missing, item_map)
     if not lacking:
@@ -141,7 +145,7 @@ class DatabaseWriter:
     def __init__(
         self,
         dsn: str,
-        item_map: Mapping[str, str],
+        item_map: Mapping[str, Sequence[str]],
         refresh: float = 2.0,
         stale_after: float = 5.0,
         connect: Callable[[str], object] | None = None,

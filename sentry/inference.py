@@ -34,6 +34,10 @@ def use_litert_for_edgetpu() -> None:
     import importlib.util
     import sys
 
+    # Already registered (a second Edge TPU model in the same process): our
+    # stand-in module has no __spec__, so find_spec() would raise ValueError.
+    if "tflite_runtime" in sys.modules:
+        return
     if importlib.util.find_spec("tflite_runtime") is not None:
         return
     try:
