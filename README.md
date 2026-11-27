@@ -139,7 +139,7 @@ With `--db`, the detector writes to the lab-monitor dashboard's PostgreSQL datab
 
 ```bash
 python ppe_detector.py --demo --require "cell phone" --source http://ESP32_IP/stream --save-dir out \
-    --db postgresql:///lab_monitor --db-map "cell phone=glasses"
+    --db postgresql:///lab_monitor --db-map "cell phone=glasses+coat"
 ```
 
 | Table | What the detector writes |
@@ -147,7 +147,7 @@ python ppe_detector.py --demo --require "cell phone" --source http://ESP32_IP/st
 | `incidencias` | One row per alert: `falta_lentes`, `falta_bata`, the readable `faltante` text, the photo path and the person's track number |
 | `estado_laboratorio` | Live state every 2 s and on every change: people in view (`cantidad_personas`), how many lack glasses (`sin_lentes`) or a coat (`sin_bata`), and `deteccion_estado`. If no frames arrive for 5 s, or the detector stops, it becomes `SIN_SENAL` |
 
-The database only knows two items, safety glasses and lab coat. The real model's `glasses` and `coat` map to them by themselves. In demo mode, `--db-map` says which one each substitute object stands for.
+The database only knows two items, safety glasses and lab coat. The real model's `glasses` and `coat` map to them by themselves. In demo mode, `--db-map` says which one each substitute object stands for. `glasses+coat` makes one object stand for both: a person without it lacks safety glasses and a lab coat.
 
 Database writes happen in a background thread: if the database is slow or down, detection carries on, alerts wait in a queue, and writing resumes when it is back (`[db] Writing again`).
 
@@ -158,7 +158,7 @@ Database writes happen in a background thread: if the database is slow or down, 
 ```
 python ppe_detector.py --source SOURCE [--rotate 0|90|180|270] [--demo] [--require OBJECTS] [--model WEIGHTS]
     [--conf 0.4] [--imgsz 640] [--save-dir out] [--cooldown 10] [--show]
-    [--web] [--web-host HOST] [--web-port 8082] [--db DSN] [--db-map ITEM=glasses|coat]
+    [--web] [--web-host HOST] [--web-port 8082] [--db DSN] [--db-map ITEM=glasses|coat|glasses+coat]
     [--window 15] [--min-samples 5] [--stats-interval 5]
 ```
 
@@ -178,7 +178,7 @@ python ppe_detector.py --source SOURCE [--rotate 0|90|180|270] [--demo] [--requi
 | `--web-host` | Tailscale IP | Address the viewer listens on |
 | `--web-port` | `8082` | Viewer port (8081 is the simulator, 81 the ESP32-CAM) |
 | `--db` | off | Write alerts and the live state to the lab-monitor database |
-| `--db-map` | none | Demo: which database item (`glasses`, `coat`) each substitute object stands for |
+| `--db-map` | none | Demo: which database item (`glasses`, `coat`, or both: `glasses+coat`) each substitute object stands for |
 | `--window` | `15` | Frames in the majority vote window |
 | `--min-samples` | `5` | Samples needed before deciding |
 | `--stats-interval` | `5` | Seconds between stats lines |
