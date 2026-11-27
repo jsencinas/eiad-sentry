@@ -153,6 +153,21 @@ Database writes happen in a background thread: if the database is slow or down, 
 
 `postgresql:///lab_monitor` connects through the local socket as your own user, who must be a member of the `lab_monitor` role.
 
+## Credential check
+
+With `--credential`, each person must show their Tec credential before their PPE is checked. Until then they are labeled **Muestre su credencial**. OCR reads the printed matrícula (`A0`/`L0` + 7 digits) near that person. It takes two matching reads to identify them, so a single misread never does.
+
+- **Speed:** OCR runs on the Pi's CPU in a background thread, about 1 s per frame, once per second, only while someone is waiting. The Coral keeps doing detection meanwhile.
+- **Holding the card:** show the side with the matrícula to the camera, still and close (within about 50 cm), for 2–3 seconds.
+- **With `--db`:** the student is found or created in `personas` by matrícula, the entry is opened in `accesos`, and it is closed when they leave the frame. Their incidents carry their `persona_id`, and `estado_laboratorio.sin_credencial` counts who is still waiting. Needs migration `005_credenciales.sql`.
+
+Install the OCR engine in the venv without its GUI OpenCV dependency, which clashes with `opencv-python-headless`:
+
+```bash
+pip install onnxruntime pyclipper shapely pyyaml omegaconf colorlog tqdm requests six pillow
+pip install --no-deps rapidocr
+```
+
 ## Arguments
 
 ```
@@ -178,6 +193,7 @@ python ppe_detector.py --source SOURCE [--rotate 0|90|180|270] [--demo] [--requi
 | `--web-host` | Tailscale IP | Address the viewer listens on |
 | `--web-port` | `8082` | Viewer port (8081 is the simulator, 81 the ESP32-CAM) |
 | `--db` | off | Write alerts and the live state to the lab-monitor database |
+| `--credential` | off | Identify each person by the matrícula on their credential (OCR) before checking their PPE |
 | `--db-map` | none | Demo: which database item (`glasses`, `coat`, or both: `glasses+coat`) each substitute object stands for |
 | `--window` | `15` | Frames in the majority vote window |
 | `--min-samples` | `5` | Samples needed before deciding |
