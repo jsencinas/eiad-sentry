@@ -121,7 +121,7 @@ def actualizar_estado_laboratorio():
 def deteccion():
     """Live state from the camera: people in view and what they lack."""
     return jsonify(consulta("""
-        SELECT cantidad_personas, sin_lentes, sin_bata, proteccion,
+        SELECT cantidad_personas, sin_lentes, sin_bata, sin_credencial, proteccion,
                deteccion_estado, ultima_deteccion
         FROM public.estado_laboratorio
         WHERE id = 1
@@ -162,7 +162,7 @@ def epp():
     "Falta: lentes de seguridad", ...), handy for an ESP32 or a display.
     """
     fila = consulta("""
-        SELECT cantidad_personas, sin_lentes, sin_bata, deteccion_estado
+        SELECT cantidad_personas, sin_lentes, sin_bata, sin_credencial, deteccion_estado
         FROM public.estado_laboratorio
         WHERE id = 1
     """, uno=True)

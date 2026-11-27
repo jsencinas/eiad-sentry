@@ -163,6 +163,7 @@ tr:first-child td{border-top:0}
         <ul class="missing" aria-label="Equipo que falta ahora">
           <li id="noGlassesRow">Sin lentes de seguridad <b id="noGlasses">0</b></li>
           <li id="noCoatRow">Sin bata <b id="noCoat">0</b></li>
+          <li id="noIdRow">Sin credencial <b id="noId">0</b></li>
         </ul>
         <span class="signal" id="signal" role="status"></span>
       </div>
@@ -328,6 +329,8 @@ async function cargarDeteccion() {
     $("noCoat").textContent = sinSenal ? "–" : d.sin_bata;
     $("noGlassesRow").classList.toggle("bad", !sinSenal && d.sin_lentes > 0);
     $("noCoatRow").classList.toggle("bad", !sinSenal && d.sin_bata > 0);
+    $("noId").textContent = sinSenal ? "–" : (d.sin_credencial ?? 0);
+    $("noIdRow").classList.toggle("bad", !sinSenal && d.sin_credencial > 0);
 
     const s = $("signal");
     s.classList.toggle("lost", sinSenal);
