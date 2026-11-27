@@ -74,6 +74,15 @@ body[data-state="off"]{--frame:#4B5753}
 .count{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
 .count b{font-size:56px;font-weight:700;font-stretch:110%;line-height:1;font-variant-numeric:tabular-nums}
 .count span{color:var(--muted)}
+.people-block{display:flex;flex-direction:column;gap:14px}
+.missing{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:6px}
+.missing li{display:flex;justify-content:space-between;gap:12px;color:var(--muted)}
+.missing b{font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
+.missing li.bad,.missing li.bad b{color:var(--hazard)}
+.signal{font-size:14px;color:var(--muted)}
+.signal.lost{color:var(--stop)}
+td a{color:var(--ink);text-underline-offset:3px}
+td.bad{color:var(--hazard)}
 
 .power{width:100%;display:flex;align-items:center;gap:14px;padding:14px 16px;border-radius:12px;background:var(--raise);font-weight:600;text-align:left;transition:background .2s}
 .power:hover:not(:disabled){background:#34413D}
@@ -144,9 +153,16 @@ tr:first-child td{border-top:0}
     </div>
 
     <aside class="rail">
-      <div class="block count">
-        <span>Personas dentro</span>
-        <b id="people">0</b>
+      <div class="block people-block">
+        <div class="count">
+          <span>Personas en cámara</span>
+          <b id="people">0</b>
+        </div>
+        <ul class="missing" aria-label="Equipo que falta ahora">
+          <li id="noGlassesRow">Sin lentes de seguridad <b id="noGlasses">0</b></li>
+          <li id="noCoatRow">Sin bata <b id="noCoat">0</b></li>
+        </ul>
+        <span class="signal" id="signal" role="status"></span>
       </div>
       <div class="block">
         <button class="power" id="power" onclick="togglePower()" aria-pressed="true">
@@ -180,7 +196,7 @@ tr:first-child td{border-top:0}
     <p class="sum" id="repSum"></p>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>Persona</th><th>Hora de entrada</th><th>Hora de salida</th><th>Estado</th></tr></thead>
+        <thead><tr><th>Hora</th><th>Persona</th><th>Le falta</th><th>Foto</th></tr></thead>
         <tbody id="repRows"></tbody>
       </table>
     </div>
@@ -300,10 +316,27 @@ function agregarFila(tbody, valores) {
     $(tbody).appendChild(fila);
 }
 
+// Live state written by the detector every 2 s (ppe_detector.py --db).
+async function cargarDeteccion() {
+    const d = await api("/api/deteccion");
+    const sinSenal = !d || d.deteccion_estado === "SIN_SENAL";
+
+    $("people").textContent = sinSenal ? "–" : d.cantidad_personas;
+    $("noGlasses").textContent = sinSenal ? "–" : d.sin_lentes;
+    $("noCoat").textContent = sinSenal ? "–" : d.sin_bata;
+    $("noGlassesRow").classList.toggle("bad", !sinSenal && d.sin_lentes > 0);
+    $("noCoatRow").classList.toggle("bad", !sinSenal && d.sin_bata > 0);
+
+    const s = $("signal");
+    s.classList.toggle("lost", sinSenal);
+    s.textContent = sinSenal ? "La cámara no envía imagen: revisa el detector y la cámara"
+        : d.deteccion_estado === "PENDIENTE" ? "Verificando el equipo…"
+        : "";
+}
+
 async function cargarPersonas() {
     const datos = await api("/api/en-laboratorio");
 
-    $("people").textContent = datos.length;
     $("labRows").replaceChildren();
     $("labSum").textContent = datos.length === 1
         ? "1 persona en el laboratorio"
@@ -372,40 +405,41 @@ function toggleCfg() {
     if (open) $("camUrl").focus();
 }
 
+// PPE alerts from the detector: what each person was missing.
 async function cargarReportes() {
-    const [historial, reportes] = await Promise.all([
-        api("/api/historial"),
-        api("/api/reportes")
-    ]);
+    const filas = await api("/api/incidencias");
 
     $("repRows").replaceChildren();
+    $("repSum").textContent = filas.length === 1
+        ? "1 incidencia reciente"
+        : filas.length + " incidencias recientes" + (filas.length === 100 ? " (las 100 más nuevas)" : "");
 
-    $("repSum").textContent =
-        historial.length + " accesos y " +
-        reportes.length + " incidencias";
-
-    historial.forEach(r => {
-        agregarFila("repRows", [
-            r.nombre,
-            formatoFecha(r.entrada),
-            r.salida
-                ? formatoFecha(r.salida)
-                : "Sigue dentro",
-            r.salida ? "Salida registrada" : "Dentro"
-        ]);
+    filas.forEach(r => {
+        const fila = document.createElement("tr");
+        const celdas = [formatoFecha(r.creado), "Persona #" + r.track_id, r.faltante];
+        celdas.forEach((valor, i) => {
+            const td = document.createElement("td");
+            td.textContent = valor;
+            if (i === 2) td.className = "bad";
+            fila.appendChild(td);
+        });
+        const foto = document.createElement("td");
+        if (r.tiene_foto) {
+            foto.appendChild(Object.assign(document.createElement("a"), {
+                href: "/api/incidencias/" + r.id + "/foto",
+                target: "_blank",
+                rel: "noopener",
+                textContent: "Ver foto"
+            }));
+        } else {
+            foto.textContent = "-";
+        }
+        fila.appendChild(foto);
+        $("repRows").appendChild(fila);
     });
 
-    reportes.forEach(r => {
-        agregarFila("repRows", [
-            "Incidencia",
-            formatoFecha(r.creado),
-            "-",
-            r.descripcion
-        ]);
-    });
-
-    if (!historial.length && !reportes.length) {
-        agregarFila("repRows", ["Sin registros", "-", "-", "-"]);
+    if (!filas.length) {
+        agregarFila("repRows", ["Sin incidencias", "-", "-", "-"]);
     }
 }
 
@@ -424,6 +458,7 @@ async function actualizar() {
     try {
         await Promise.all([
             cargarEstado(),
+            cargarDeteccion(),
             cargarPersonas()
         ]);
 
