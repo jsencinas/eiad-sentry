@@ -41,8 +41,10 @@
 static const char *HOSTNAME = "sentry-cam";       // http://sentry-cam.local/stream
 static const int JPEG_QUALITY = 12;               // 10-63, lower = better image, bigger frames
 static const int SOFT_JPEG_QUALITY = 80;          // sensors without hardware JPEG (1-100)
-static const uint32_t WIFI_CONNECT_TIMEOUT_MS = 30000;
-static const uint32_t WIFI_LOST_RESTART_MS = 60000;
+static const uint32_t WIFI_ATTEMPT_MS = 25000;      // one PEAP login attempt (Tec can be slow)
+static const uint32_t WIFI_RETRY_DELAY_MS = 15000;  // pause between attempts
+static const uint8_t WIFI_MAX_ATTEMPTS = 5;         // then restart the board as a last resort
+static const uint32_t WIFI_LOST_RETRY_MS = 60000;   // reconnect by hand if the driver has not
 static const uint32_t STATS_INTERVAL_MS = 5000;
 static const uint8_t MAX_CAPTURE_FAILURES = 10;
 
@@ -138,40 +140,55 @@ static const char *disconnectReason(uint8_t reason) {
   }
 }
 
-void connectWiFi() {
-  WiFi.disconnect(true);  // start from a clean state, as the old firmware did
-  WiFi.persistent(false);
+static void logDisconnect(WiFiEvent_t event, WiFiEventInfo_t info) {
+  uint8_t reason = info.wifi_sta_disconnected.reason;
+  Serial.printf("\nWiFi disconnected, reason %u %s\n", reason, disconnectReason(reason));
+}
+
+// One PEAP login attempt, the same way as the sketch that connects reliably:
+// clean WiFi state, short pause, enterprise begin(). True if connected.
+static bool tryWiFiOnce() {
+  WiFi.disconnect(true, true);
+  delay(200);
   WiFi.setHostname(HOSTNAME);  // before mode(), or some cores ignore it
   WiFi.mode(WIFI_STA);
   WiFi.setSleep(false);  // power saving cuts the stream rate several times over
-  WiFi.setAutoReconnect(true);
-  WiFi.onEvent([](WiFiEvent_t event, WiFiEventInfo_t info) {
-    if (event == ARDUINO_EVENT_WIFI_STA_DISCONNECTED) {
-      uint8_t reason = info.wifi_sta_disconnected.reason;
-      Serial.printf("\nWiFi disconnected, reason %u %s\n", reason, disconnectReason(reason));
-    }
-  });
 
   Serial.printf("MAC %s, connecting to %s", WiFi.macAddress().c_str(), WIFI_SSID);
 #ifdef EAP_USERNAME
-  // The core's own enterprise begin() sets up PEAP right before connecting;
-  // configuring EAP by hand and then calling the plain begin() is not reliable.
   WiFi.begin(WIFI_SSID, WPA2_AUTH_PEAP, EAP_IDENTITY, EAP_USERNAME, EAP_PASSWORD);
 #else
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 #endif
 
   uint32_t start = millis();
-  while (WiFi.status() != WL_CONNECTED) {
-    if (millis() - start > WIFI_CONNECT_TIMEOUT_MS) {
-      Serial.println(" timeout, restarting");
-      ESP.restart();
-    }
+  while (WiFi.status() != WL_CONNECTED && millis() - start < WIFI_ATTEMPT_MS) {
     delay(500);
     Serial.print(".");
   }
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.printf("\nNo connection after %u s (WiFi.status = %d)\n", (unsigned)(WIFI_ATTEMPT_MS / 1000),
+                  WiFi.status());
+    return false;
+  }
   WiFi.setSleep(false);  // again: some cores reset it when the connection comes up
   Serial.printf("\nConnected: IP %s, signal %d dBm\n", WiFi.localIP().toString().c_str(), WiFi.RSSI());
+  return true;
+}
+
+// Retries in place instead of restarting: a restart throws away a slow PEAP
+// login half-way, and many failed logins can get the device blocked for a while.
+void connectWiFi() {
+  for (uint8_t attempt = 1; attempt <= WIFI_MAX_ATTEMPTS; attempt++) {
+    if (tryWiFiOnce()) return;
+    if (attempt < WIFI_MAX_ATTEMPTS) {
+      Serial.printf("Retrying in %u s (attempt %u of %u)\n", (unsigned)(WIFI_RETRY_DELAY_MS / 1000), attempt + 1,
+                    WIFI_MAX_ATTEMPTS);
+      delay(WIFI_RETRY_DELAY_MS);
+    }
+  }
+  Serial.println("Could not connect, restarting");
+  ESP.restart();
 }
 
 static esp_err_t streamHandler(httpd_req_t *req) {
@@ -272,6 +289,7 @@ void setup() {
     delay(5000);
     ESP.restart();
   }
+  WiFi.onEvent(logDisconnect, ARDUINO_EVENT_WIFI_STA_DISCONNECTED);  // say why a login fails
   connectWiFi();
   startStreamServer();
 }
@@ -280,14 +298,16 @@ void loop() {
   static uint32_t lastStats = millis();
   static uint32_t wifiLostSince = 0;
 
-  // WiFi: the driver reconnects by itself; restart if it stays down.
+  // WiFi: the driver reconnects by itself; if it has not after a minute,
+  // log in again by hand (which only restarts after several failed attempts).
   if (WiFi.status() != WL_CONNECTED) {
     if (wifiLostSince == 0) {
       wifiLostSince = millis();
       Serial.println("WiFi lost, reconnecting...");
-    } else if (millis() - wifiLostSince > WIFI_LOST_RESTART_MS) {
-      Serial.println("WiFi still down, restarting");
-      ESP.restart();
+    } else if (millis() - wifiLostSince > WIFI_LOST_RETRY_MS) {
+      Serial.println("WiFi still down, logging in again");
+      connectWiFi();
+      wifiLostSince = 0;
     }
   } else if (wifiLostSince != 0) {
     wifiLostSince = 0;
