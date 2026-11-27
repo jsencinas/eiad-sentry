@@ -103,6 +103,36 @@ The video shows students, so by default the viewer **only listens on the Pi's Ta
 
 Frames are only JPEG-encoded while someone is watching, so the viewer costs almost nothing when nobody has it open.
 
+## Coral Edge TPU
+
+A Google Coral USB Accelerator runs the model about 6x faster than the Pi's CPU and leaves the CPU almost idle. Measured on the Pi 5 with the full pipeline (tracking, smoothing, database):
+
+| Model | Inference | Analysis rate |
+|---|---|---|
+| `yolov8n.pt` on the CPU, `--imgsz 640` | 310 ms | 3.2 fps |
+| `yolov8n.pt` on the CPU, `--imgsz 320` | 94 ms | ~10 fps |
+| `yolov8n` on the Coral, `--imgsz 320` | 53 ms | 18.8 fps |
+
+1. **Runtime on the Pi.** Google's own packages no longer work, so use the maintained builds. Download the `libedgetpu1-std_*.trixie_arm64.deb` (Raspberry Pi OS 13) or `*.bookworm_arm64.deb` (OS 12) from [feranick/libedgetpu](https://github.com/feranick/libedgetpu/releases), then:
+   ```bash
+   sudo apt install ./libedgetpu1-std_*_arm64.deb
+   sudo udevadm control --reload-rules && sudo udevadm trigger --subsystem-match=usb --attr-match=idVendor=1a6e
+   pip install ai-edge-litert   # in the project venv
+   ```
+   Plug the Coral into a blue USB 3 port. `lsusb` shows `1a6e:089a Global Unichip` until the first model loads, then `18d1:9302 Google`. Your user must be in the `plugdev` group.
+2. **Convert the model on an x86 Linux computer.** The compiler does not run on ARM. With Docker:
+   ```bash
+   docker run --rm -v "$PWD":/work -w /work python:3.11-slim bash -c \
+     "apt-get update -qq && apt-get install -y -qq libgl1 libglib2.0-0 && pip install ultralytics && yolo export model=yolov8n.pt format=edgetpu imgsz=320"
+   ```
+   Copy `yolov8n_saved_model/yolov8n_full_integer_quant_edgetpu.tflite` to the Pi. Keep the `_edgetpu.tflite` ending: that is how the detector knows to use the Coral.
+3. **Run it** with the same `--imgsz` the model was exported with:
+   ```bash
+   python ppe_detector.py --demo --model yolov8n_full_integer_quant_edgetpu.tflite --imgsz 320 --source ...
+   ```
+
+`tflite_runtime`, which Ultralytics expects, has no build for Python 3.13. The detector registers Google's `ai-edge-litert` under that name, so nothing else is needed. 320 px fits the whole model on the Coral and matches a 320x240 ESP32-CAM. The model is quantized to 8 bits, which costs a little accuracy.
+
 ## Lab-monitor database
 
 With `--db`, the detector writes to the lab-monitor dashboard's PostgreSQL database. It needs migration `004_faltantes_y_permisos.sql` from the `lab-monitor` branch, and `pip install "psycopg[binary]"`.
